@@ -7,7 +7,12 @@ fn handle_client(mut stream: TcpStream) {
     while match stream.read(&mut data) {
         Ok(size) => {
             // echo everything!
-            stream.write(&data[0..size]).unwrap();
+            for x in data {
+                print!("{:02X?} ", x);
+                // write!("{:X} ", value).expect("Unable to write");
+            }
+            println!("");
+            //stream.write(&data[0..size]).unwrap();
             true
         },
         Err(_) => {
@@ -19,9 +24,9 @@ fn handle_client(mut stream: TcpStream) {
 }
 
 fn main() {
-    let listener = TcpListener::bind("0.0.0.0:3333").unwrap();
+    let listener = TcpListener::bind("0.0.0.0:15045").unwrap();
     // accept connections and process them, spawning a new thread for each one
-    println!("Server listening on port 3333");
+    println!("Server listening on port 15045");
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
