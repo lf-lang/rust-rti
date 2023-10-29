@@ -1,9 +1,21 @@
+/**
+ * @file
+ * @author Chanhee Lee (..)
+ * @author Hokeun Kim (hkim501@asu.edu)
+ * @copyright (c) 2023, Arizona State University
+ * License in [BSD 2-clause](..)
+ * @brief ..
+ */
 mod constants;
+mod enclave;
+mod federate;
+mod federate_rti;
 mod net_common;
 mod server;
 
 use std::error::Error;
 
+use crate::federate_rti::*;
 use server::Server;
 
 pub struct Config {
@@ -24,8 +36,14 @@ impl Config {
 }
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
+    let rti = initialize_RTI();
+
     let server = Server::new(config.ip_v4, config.port);
     server.listen();
 
     Ok(())
+}
+
+fn initialize_RTI() -> FederateRTI {
+    FederateRTI::new()
 }
