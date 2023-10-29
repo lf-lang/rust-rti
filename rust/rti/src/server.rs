@@ -2,14 +2,13 @@ use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::thread;
 
-use crate::net_common::{ErrType, MsgType};
 use crate::constants::*;
+use crate::net_common::{ErrType, MsgType};
 
 pub struct Server {
     ip_v4: String,
     port: String,
 }
-
 
 impl Server {
     pub fn new(ip_v4: String, port: String) -> Server {
@@ -100,7 +99,10 @@ impl Server {
                             //     tracepoint_rti_from_federate(_f_rti->trace, receive_FED_ID, fed_id, NULL);
                             // }
                             match federation_id_received == federation_id {
-                                true => println!("Federation ID matches! {} {}", federation_id, federation_id_received),
+                                true => println!(
+                                    "Federation ID matches! {} {}",
+                                    federation_id, federation_id_received
+                                ),
                                 _ => {
                                     println!("ERROR: Federation ID does not match!");
                                     std::process::exit(1);
@@ -127,7 +129,7 @@ impl Server {
                                     );
                                 }
                             }
-                            
+
                             // (In Progress)
                             // TODO: Implement the following c code (tracing_enabled case)
                             // if (_f_rti->tracing_enabled) {

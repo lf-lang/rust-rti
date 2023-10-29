@@ -1,6 +1,6 @@
+mod constants;
 mod net_common;
 mod server;
-mod constants;
 
 use std::error::Error;
 
