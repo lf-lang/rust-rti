@@ -3,6 +3,7 @@ pub enum MsgType {
     TIMESTAMP,
     P2P_SENDING_FED_ID,
     P2P_TAGGED_MESSAGE,
+    NEIGHBOR_STRUCTURE,
     ACK,
 }
 
@@ -13,6 +14,7 @@ impl MsgType {
             MsgType::TIMESTAMP => 2,
             MsgType::P2P_SENDING_FED_ID => 15,
             MsgType::P2P_TAGGED_MESSAGE => 17,
+            MsgType::NEIGHBOR_STRUCTURE => 24,
             MsgType::ACK => 255,
         }
     }

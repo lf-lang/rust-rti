@@ -3,11 +3,13 @@ use std::net::{Shutdown, TcpListener, TcpStream};
 use std::thread;
 
 use crate::net_common::{ErrType, MsgType};
+use crate::constants::*;
 
 pub struct Server {
     ip_v4: String,
     port: String,
 }
+
 
 impl Server {
     pub fn new(ip_v4: String, port: String) -> Server {
@@ -86,6 +88,10 @@ impl Server {
                     let federation_id_length = u8::from_le_bytes(buffer[3..4].try_into().unwrap());
                     println!("federationIdLength: {}", federation_id_length);
                     let last_index: usize = (4 + federation_id_length).into();
+
+                    // TODO: Move federation_id to server struct.
+                    let federation_id = "Undefined Federation1";
+
                     match String::from_utf8(buffer[4..last_index].to_vec()) {
                         Ok(federation_id_received) => {
                             println!("RTI received federation ID: {}.", federation_id_received);
@@ -93,6 +99,13 @@ impl Server {
                             // if (_f_rti->tracing_enabled) {
                             //     tracepoint_rti_from_federate(_f_rti->trace, receive_FED_ID, fed_id, NULL);
                             // }
+                            match federation_id_received == federation_id {
+                                true => println!("Federation ID matches! {} {}", federation_id, federation_id_received),
+                                _ => {
+                                    println!("ERROR: Federation ID does not match!");
+                                    std::process::exit(1);
+                                }
+                            }
 
                             // TODO: Compare the received federation ID to mine.
 
@@ -114,6 +127,7 @@ impl Server {
                                     );
                                 }
                             }
+                            
                             // (In Progress)
                             // TODO: Implement the following c code (tracing_enabled case)
                             // if (_f_rti->tracing_enabled) {
