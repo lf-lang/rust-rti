@@ -14,22 +14,20 @@ use crate::constants::*;
 use crate::net_common::{ErrType, MsgType};
 
 pub struct Server {
-    ip_v4: String,
     port: String,
 }
 
 impl Server {
-    pub fn new(ip_v4: String, port: String) -> Server {
-        Server { ip_v4, port }
+    pub fn new(port: String) -> Server {
+        Server { port }
     }
 
     pub fn listen(self) {
-        let mut address = self.ip_v4;
-        address.push(':');
+        let mut address = String::from("0.0.0.0:");
         address.push_str(self.port.as_str());
         let listener = TcpListener::bind(address).unwrap();
         // accept connections and process them, spawning a new thread for each one
-        println!("Server listening on port 15045");
+        println!("Server listening on port {}", self.port);
         for stream in listener.incoming() {
             match stream {
                 Ok(stream) => {
@@ -97,7 +95,7 @@ impl Server {
                     let last_index: usize = (4 + federation_id_length).into();
 
                     // TODO: Move federation_id to server struct.
-                    let federation_id = "Undefined Federation1";
+                    let federation_id = "Unidentified Federation";
 
                     match String::from_utf8(buffer[4..last_index].to_vec()) {
                         Ok(federation_id_received) => {
@@ -112,7 +110,10 @@ impl Server {
                                     federation_id, federation_id_received
                                 ),
                                 _ => {
-                                    println!("ERROR: Federation ID does not match!");
+                                    println!(
+                                        "ERROR: Federation ID does not match! {} {}",
+                                        federation_id, federation_id_received
+                                    );
                                     std::process::exit(1);
                                 }
                             }
@@ -130,7 +131,7 @@ impl Server {
                             println!("MSG_TYPE_ACK message: {:?}", ack_message);
                             match stream.write(&ack_message) {
                                 Ok(..) => {}
-                                Err(e) => {
+                                Err(_e) => {
                                     println!(
                                         "RTI failed to write MSG_TYPE_ACK message to federate {}.",
                                         fed_id
@@ -163,5 +164,5 @@ impl Server {
         } {}
     }
 
-    fn send_reject(err_msg: ErrType) {}
+    fn send_reject(_err_msg: ErrType) {}
 }
