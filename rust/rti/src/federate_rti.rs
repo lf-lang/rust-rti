@@ -1,3 +1,4 @@
+use crate::constants::*;
 use crate::enclave::*;
 /**
  * @file
@@ -133,7 +134,7 @@ impl FederateRTI {
             num_feds_proposed_start: 0,
             // all_federates_exited:false,
             federation_id: String::from("Unidentified Federation"),
-            user_specified_port: 0,
+            user_specified_port: STARTING_PORT,
             final_port_TCP: 0,
             socket_descriptor_TCP: -1,
             final_port_UDP: u16::MAX,

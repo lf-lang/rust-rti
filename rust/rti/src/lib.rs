@@ -106,14 +106,6 @@ impl Config {
                 }
                 idx += 1;
                 // TODO: idx += process_clock_sync_args();
-            } else if arg == "-a" || arg == "--auth" {
-                // TODO: #ifndef __RTI_AUTH__
-                // lf_print_error("--auth requires the RTI to be built with the -DAUTH=ON option.");
-                // usage(argc, argv);
-                // return 0;
-                rti.set_authentication_enabled(true);
-            } else if arg == "-t" || arg == "--tracing" {
-                rti.set_tracing_enabled(true);
             } else if arg == " " {
                 // Tolerate spaces
                 continue;
