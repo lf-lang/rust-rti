@@ -9,18 +9,28 @@
 use std::env;
 use std::process;
 
-use rti::*;
-
 fn main() {
-    let mut rti = rti::initialize_RTI();
+    let mut _f_rti = rti::initialize_RTI();
 
     let args: Vec<String> = env::args().collect();
     // dbg!(args);
 
-    Config::build(&mut rti, &args).unwrap_or_else(|err| {
+    rti::process_args(&mut _f_rti, &args).unwrap_or_else(|err| {
         println!("Problem parsing arguments: {err}");
         process::exit(1);
     });
 
-    if let Err(_e) = rti::run(&mut rti) {}
+    println!(
+        "Starting RTI for {} federates in federation ID {}.",
+        _f_rti.number_of_enclaves(),
+        _f_rti.federation_id()
+    );
+    assert!(_f_rti.number_of_enclaves() < u16::MAX.into());
+
+    rti::initialize_federates(&mut _f_rti);
+
+    let server = rti::start_rti_server(&mut _f_rti);
+    server
+        .expect("Failed to wait for federates")
+        .wait_for_federates(_f_rti);
 }

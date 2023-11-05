@@ -1,5 +1,3 @@
-use crate::constants::*;
-use crate::enclave::*;
 /**
  * @file
  * @author Edward A. Lee (eal@berkeley.edu)
@@ -14,6 +12,7 @@ use crate::enclave::*;
  * This file extends enclave.h with RTI features that are specific to federations and are not
  * used by scheduling enclaves.
  */
+use crate::constants::*;
 use crate::federate::*;
 
 /**
@@ -29,7 +28,7 @@ use crate::federate::*;
  *     // ** (enclave.h)! The change must exactly match.  **
  *     // **************************************************
  */
-pub struct FederateRTI {
+pub struct FederationRTI {
     ////////////////// Enclave specific attributes //////////////////
 
     // The federates.
@@ -121,9 +120,9 @@ pub struct FederateRTI {
     stop_in_progress: bool,
 }
 
-impl FederateRTI {
-    pub fn new() -> FederateRTI {
-        FederateRTI {
+impl FederationRTI {
+    pub fn new() -> FederationRTI {
+        FederationRTI {
             enclaves: Vec::new(),
             // enclave_rti related initializations
             // max_stop_tag: ,
@@ -148,31 +147,31 @@ impl FederateRTI {
         }
     }
 
+    pub fn enclaves(&mut self) -> &mut Vec<Federate> {
+        &mut self.enclaves
+    }
+
     pub fn number_of_enclaves(&mut self) -> i32 {
         self.number_of_enclaves
+    }
+
+    pub fn federation_id(&mut self) -> String {
+        self.federation_id.clone()
     }
 
     pub fn user_specified_port(&mut self) -> u16 {
         self.user_specified_port
     }
 
-    pub fn set_federation_id(&mut self, federation_id: String) {
-        self.federation_id = federation_id;
-    }
-
     pub fn set_number_of_enclaves(&mut self, number_of_enclaves: i32) {
         self.number_of_enclaves = number_of_enclaves;
     }
 
+    pub fn set_federation_id(&mut self, federation_id: String) {
+        self.federation_id = federation_id;
+    }
+
     pub fn set_port(&mut self, user_specified_port: u16) {
         self.user_specified_port = user_specified_port;
-    }
-
-    pub fn set_tracing_enabled(&mut self, tracing_enabled: bool) {
-        self.tracing_enabled = tracing_enabled;
-    }
-
-    pub fn set_authentication_enabled(&mut self, authentication_enabled: bool) {
-        self.authentication_enabled = authentication_enabled;
     }
 }
