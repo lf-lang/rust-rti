@@ -1,3 +1,4 @@
+use crate::constants::*;
 use crate::enclave::*;
 /**
  * @file
@@ -71,7 +72,7 @@ pub struct FederateRTI {
      * This should be overridden with a command-line -i option to ensure
      * that each federate only joins its assigned federation.
      */
-    // TODO: const char* federation_id;
+    federation_id: String,
 
     /************* TCP server information *************/
     /** The desired port specified by the user on the command line. */
@@ -132,8 +133,8 @@ impl FederateRTI {
             max_start_time: 0,
             num_feds_proposed_start: 0,
             // all_federates_exited:false,
-            // federation_id:"Unidentified Federation",
-            user_specified_port: 0,
+            federation_id: String::from("Unidentified Federation"),
+            user_specified_port: STARTING_PORT,
             final_port_TCP: 0,
             socket_descriptor_TCP: -1,
             final_port_UDP: u16::MAX,
@@ -145,5 +146,33 @@ impl FederateRTI {
             tracing_enabled: false,
             stop_in_progress: false,
         }
+    }
+
+    pub fn number_of_enclaves(&mut self) -> i32 {
+        self.number_of_enclaves
+    }
+
+    pub fn user_specified_port(&mut self) -> u16 {
+        self.user_specified_port
+    }
+
+    pub fn set_federation_id(&mut self, federation_id: String) {
+        self.federation_id = federation_id;
+    }
+
+    pub fn set_number_of_enclaves(&mut self, number_of_enclaves: i32) {
+        self.number_of_enclaves = number_of_enclaves;
+    }
+
+    pub fn set_port(&mut self, user_specified_port: u16) {
+        self.user_specified_port = user_specified_port;
+    }
+
+    pub fn set_tracing_enabled(&mut self, tracing_enabled: bool) {
+        self.tracing_enabled = tracing_enabled;
+    }
+
+    pub fn set_authentication_enabled(&mut self, authentication_enabled: bool) {
+        self.authentication_enabled = authentication_enabled;
     }
 }
