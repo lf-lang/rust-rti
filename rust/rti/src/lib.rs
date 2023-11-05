@@ -150,8 +150,6 @@ fn usage(argc: usize, argv: &[String]) {
     println!("          (period in nanoseconds, default is 5 msec). Only applies to 'on'.");
     println!("       - exchanges-per-interval <n>: Controls the number of messages that are exchanged for each");
     println!("          clock sync attempt (default is 10). Applies to 'init' and 'on'.");
-    println!("  -a, --auth Turn on HMAC authentication options.");
-    println!("  -t, --tracing Turn on tracing.");
 
     println!("Command given:");
     let mut idx = 0;
