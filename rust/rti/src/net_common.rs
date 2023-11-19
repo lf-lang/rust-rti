@@ -13,6 +13,13 @@
  * used by scheduling enclaves.
  */
 
+/**
+ * Size of the buffer used for messages sent between federates.
+ * This is used by both the federates and the rti, so message lengths
+ * should generally match.
+ */
+pub const FED_COM_BUFFER_SIZE: usize = 256;
+
 pub enum MsgType {
     FED_IDS,
     TIMESTAMP,
@@ -42,17 +49,4 @@ pub enum ErrType {
     UNEXPECTED_MESSAGE,
     WRONG_SERVER,
     HMAC_DOES_NOT_MATCH,
-}
-
-impl ErrType {
-    pub fn to_byte(&self) -> u8 {
-        match self {
-            ErrType::FEDERATION_ID_DOES_NOT_MATCH => 1,
-            ErrType::FEDERATE_ID_IN_USE => 2,
-            ErrType::FEDERATE_ID_OUT_OF_RANGE => 3,
-            ErrType::UNEXPECTED_MESSAGE => 4,
-            ErrType::WRONG_SERVER => 5,
-            ErrType::HMAC_DOES_NOT_MATCH => 6,
-        }
-    }
 }

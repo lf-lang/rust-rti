@@ -35,11 +35,48 @@ pub struct Federate {
     // TODO: in_transit_message_record_q_t* in_transit_message_tags; // Record of in-transit messages to this federate that are not
     // yet processed. This record is ordered based on the time
     // value of each message for a more efficient access.
-    // TODO: char server_hostname[INET_ADDRSTRLEN]; // Human-readable IP address and
-    server_port: i32, // port number of the socket server of the federate
-                      // if it has any incoming direct connections from other federates.
-                      // The port number will be -1 if there is no server or if the
-                      // RTI has not been informed of the port number.
-                      // TODO: struct in_addr server_ip_addr; // Information about the IP address of the socket
-                      // server of the federate.
+    server_hostname: String, // Human-readable IP address and
+    server_port: i32,        // port number of the socket server of the federate
+                             // if it has any incoming direct connections from other federates.
+                             // The port number will be -1 if there is no server or if the
+                             // RTI has not been informed of the port number.
+                             // TODO: struct in_addr server_ip_addr; // Information about the IP address of the socket
+                             // server of the federate.
+}
+
+impl Federate {
+    pub fn new() -> Federate {
+        Federate {
+            enclave: Enclave::new(),
+            requested_stop: false,
+            socket: -1,
+            clock_synchronization_enabled: true,
+            server_hostname: String::from("localhost"),
+            server_port: -1,
+        }
+    }
+
+    pub fn enclave(&mut self) -> &mut Enclave {
+        &mut self.enclave
+    }
+
+    pub fn set_requested_stop(&mut self, requested_stop: bool) {
+        self.requested_stop = requested_stop;
+    }
+
+    pub fn set_socket(&mut self, socket: i32) {
+        self.socket = socket;
+    }
+
+    pub fn set_clock_synchronization_enabled(&mut self, clock_synchronization_enabled: bool) {
+        self.clock_synchronization_enabled = clock_synchronization_enabled;
+    }
+
+    pub fn set_server_hostname(&mut self, server_hostname: String) {
+        self.server_hostname = server_hostname;
+    }
+
+    pub fn set_server_port(&mut self, server_port: i32) {
+        self.server_port = server_port;
+    }
 }
