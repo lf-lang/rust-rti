@@ -115,9 +115,9 @@ impl Server {
                             // synchronization messages.
                             let _handle = thread::spawn(move || {
                                 // This closure is the implementation of federate_thread_TCP in rti_lib.c
-                                let mut locked_rti = cloned_rti.lock().unwrap();
-                                let fed: &mut Federate =
-                                    &mut locked_rti.enclaves()[fed_id as usize];
+                                // let mut locked_rti = cloned_rti.lock().unwrap();
+                                // let fed: &mut Federate =
+                                //     &mut locked_rti.enclaves()[fed_id as usize];
 
                                 // Buffer for incoming messages.
                                 // This does not constrain the message size because messages
@@ -125,9 +125,22 @@ impl Server {
                                 let mut buffer = vec![0 as u8; FED_COM_BUFFER_SIZE];
 
                                 // Listen for messages from the federate.
-                                while fed.enclave().state() != FedState::NOT_CONNECTED {
+                                // while fed.enclave().state() != FedState::NOT_CONNECTED {
+                                while true {
+                                    {
+                                        let mut locked_rti = cloned_rti.lock().unwrap();
+                                        let fed: &mut Federate =
+                                            &mut locked_rti.enclaves()[fed_id as usize];
+                                        if fed.enclave().state() == FedState::NOT_CONNECTED {
+                                            break;
+                                        }
+                                    }
                                     while match stream.read(&mut buffer) {
                                         Ok(bytes_read) => {
+                                            let mut locked_rti = cloned_rti.lock().unwrap();
+                                            let fed: &mut Federate =
+                                                &mut locked_rti.enclaves()[fed_id as usize];
+
                                             if bytes_read < 1 {
                                                 // Socket is closed
 
@@ -176,7 +189,6 @@ impl Server {
         let mut first_buffer = vec![0 as u8; length];
         let mut fed_id = u16::MAX;
         let cloned_rti = Arc::clone(&_f_rti);
-        let mut locked_rti = cloned_rti.lock().unwrap();
         while match stream.read(&mut first_buffer) {
             Ok(size) => {
                 // echo everything!
@@ -228,6 +240,7 @@ impl Server {
                                         federation_id_received
                                     );
 
+                                    let mut locked_rti = cloned_rti.lock().unwrap();
                                     // Compare the received federation ID to mine.
                                     if federation_id_received != locked_rti.federation_id() {
                                         // Federation IDs do not match. Send back a MSG_TYPE_REJECT message.
