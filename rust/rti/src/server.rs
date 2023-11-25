@@ -95,7 +95,7 @@ impl Server {
             for stream in socket.incoming() {
                 match stream {
                     Ok(mut stream) => {
-                        println!("New connection: {}", stream.peer_addr().unwrap());
+                        println!("\nNew connection: {}", stream.peer_addr().unwrap());
 
                         // The first message from the federate should contain its ID and the federation ID.
                         let fed_id =
@@ -115,9 +115,6 @@ impl Server {
                             // synchronization messages.
                             let _handle = thread::spawn(move || {
                                 // This closure is the implementation of federate_thread_TCP in rti_lib.c
-                                // let mut locked_rti = cloned_rti.lock().unwrap();
-                                // let fed: &mut Federate =
-                                //     &mut locked_rti.enclaves()[fed_id as usize];
 
                                 // Buffer for incoming messages.
                                 // This does not constrain the message size because messages
@@ -125,7 +122,6 @@ impl Server {
                                 let mut buffer = vec![0 as u8; FED_COM_BUFFER_SIZE];
 
                                 // Listen for messages from the federate.
-                                // while fed.enclave().state() != FedState::NOT_CONNECTED {
                                 while true {
                                     {
                                         let mut locked_rti = cloned_rti.lock().unwrap();
@@ -197,7 +193,7 @@ impl Server {
                 for x in &first_buffer {
                     print!("{:02X?} ", x);
                 }
-                println!("\n");
+                println!("");
 
                 // First byte received is the message type.
                 if first_buffer[0] != MsgType::FED_IDS.to_byte() {
@@ -232,7 +228,6 @@ impl Server {
                     let mut second_buffer = vec![0 as u8; federation_id_length.into()];
                     while match stream.read(&mut second_buffer) {
                         Ok(second_size) => {
-                            print!("Second Message Size: {}\n", second_size);
                             match String::from_utf8(second_buffer.clone()) {
                                 Ok(federation_id_received) => {
                                     println!(
@@ -275,7 +270,7 @@ impl Server {
                                         }
                                     }
                                     println!(
-                                        "Federation ID matches! {}(received) <-> {}(_f_rti)",
+                                        "Federation ID matches! \"{}(received)\" <-> \"{}(_f_rti)\"",
                                         federation_id_received,
                                         locked_rti.federation_id()
                                     );
@@ -353,10 +348,6 @@ impl Server {
             vec![0 as u8; MSG_TYPE_NEIGHBOR_STRUCTURE_HEADER_SIZE.try_into().unwrap()];
         while match stream.read(&mut connection_info_header) {
             Ok(first_recv_size) => {
-                println!(
-                    "[receive_connection_information] first_recv_size: {}",
-                    first_recv_size
-                );
                 if connection_info_header[0] != MsgType::NEIGHBOR_STRUCTURE.to_byte() {
                     println!("RTI was expecting a MSG_TYPE_UDP_PORT message from federate {}. Got {} instead. Rejecting federate.", fed_id, connection_info_header[0]);
                     Self::send_reject(ErrType::UNEXPECTED_MESSAGE);
@@ -382,21 +373,8 @@ impl Server {
                         ((mem::size_of::<u16>() + mem::size_of::<i64>()) * num_upstream)
                             + (mem::size_of::<u16>() * num_downstream);
                     let mut connection_info_body = vec![0 as u8; connections_info_body_size];
-                    println!(
-                        "connections_info_body_size = {}",
-                        connections_info_body_size
-                    );
                     while match stream.read(&mut connection_info_body) {
                         Ok(second_recv_size) => {
-                            println!(
-                                "[receive_connection_information] second_recv_size: {}",
-                                second_recv_size
-                            );
-                            for x in &connection_info_body {
-                                print!("{:02X?} ", x);
-                            }
-                            println!("\n");
-
                             // Keep track of where we are in the buffer
                             let mut message_head: usize = 0;
                             // First, read the info about upstream federates
@@ -406,10 +384,6 @@ impl Server {
                                         [message_head..(message_head + mem::size_of::<u16>())]
                                         .try_into()
                                         .unwrap(),
-                                );
-                                println!(
-                                    "upstream_id: {}, message_head: {}",
-                                    upstream_id, message_head
                                 );
                                 enclave.set_upstream_id_at(upstream_id, i);
                                 message_head += mem::size_of::<u16>();
@@ -422,10 +396,6 @@ impl Server {
                                         [message_head..(message_head + mem::size_of::<i64>())]
                                         .try_into()
                                         .unwrap(),
-                                );
-                                println!(
-                                    "upstream_delay: {}, message_head: {}",
-                                    upstream_delay, message_head
                                 );
                                 enclave.set_upstream_delay_at(Some(upstream_delay), i);
                                 message_head += mem::size_of::<i64>();
@@ -443,10 +413,6 @@ impl Server {
                                         .try_into()
                                         .unwrap(),
                                 );
-                                println!(
-                                    "downstream_id: {}, message_head: {}",
-                                    downstream_id, message_head
-                                );
                                 enclave.set_downstream_id_at(downstream_id, i);
                                 message_head += mem::size_of::<u16>();
                                 println!(
@@ -455,15 +421,16 @@ impl Server {
                                 );
                             }
 
-                            return true;
+                            false
                         }
                         Err(_) => {
                             println!("RTI failed to read MSG_TYPE_NEIGHBOR_STRUCTURE message body from federate {}.",
                             fed_id);
-                            return false;
+                            false
                         }
                     } {}
-                    true
+
+                    false
                 }
             }
             Err(_) => {
