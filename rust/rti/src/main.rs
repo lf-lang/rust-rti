@@ -9,7 +9,8 @@
 use std::env;
 use std::process;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let mut _f_rti = rti::initialize_RTI();
 
     let args: Vec<String> = env::args().collect();
@@ -32,5 +33,6 @@ fn main() {
     let server = rti::start_rti_server(&mut _f_rti);
     server
         .expect("Failed to wait for federates")
-        .wait_for_federates(_f_rti);
+        .wait_for_federates(_f_rti)
+        .await;
 }
