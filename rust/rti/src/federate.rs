@@ -13,6 +13,10 @@
  * used by scheduling enclaves.
  */
 use crate::enclave::*;
+use crate::message_record::message_record::InTransitMessageRecordQueue;
+
+use std::net::TcpStream;
+use std::option::Option;
 
 /**
  * Information about a federate known to the RTI, including its runtime state,
@@ -28,11 +32,11 @@ pub struct Federate {
     // to a request for stop from the RTI. Used to prevent double-counting
     // a federate when handling lf_request_stop().
     // TODO: lf_thread_t thread_id;    // The ID of the thread handling communication with this federate.
-    socket: i32, // The TCP socket descriptor for communicating with this federate.
+    stream: Option<TcpStream>, // The TCP socket descriptor for communicating with this federate.
     // TODO: struct sockaddr_in UDP_addr;           // The UDP address for the federate.
     clock_synchronization_enabled: bool, // Indicates the status of clock synchronization
     // for this federate. Enabled by default.
-    // TODO: in_transit_message_record_q_t* in_transit_message_tags; // Record of in-transit messages to this federate that are not
+    in_transit_message_tags: InTransitMessageRecordQueue, // Record of in-transit messages to this federate that are not
     // yet processed. This record is ordered based on the time
     // value of each message for a more efficient access.
     server_hostname: String, // Human-readable IP address and
@@ -49,27 +53,40 @@ impl Federate {
         Federate {
             enclave: Enclave::new(),
             requested_stop: false,
-            socket: -1,
+            stream: None::<TcpStream>,
             clock_synchronization_enabled: true,
+            in_transit_message_tags: InTransitMessageRecordQueue::new(),
             server_hostname: String::from("localhost"),
             server_port: -1,
         }
+    }
+
+    pub fn e(&self) -> &Enclave {
+        &self.enclave
     }
 
     pub fn enclave(&mut self) -> &mut Enclave {
         &mut self.enclave
     }
 
+    pub fn stream(&self) -> &Option<TcpStream> {
+        &self.stream
+    }
+
     pub fn set_requested_stop(&mut self, requested_stop: bool) {
         self.requested_stop = requested_stop;
     }
 
-    pub fn set_socket(&mut self, socket: i32) {
-        self.socket = socket;
+    pub fn set_stream(&mut self, stream: TcpStream) {
+        self.stream = Some(stream);
     }
 
     pub fn set_clock_synchronization_enabled(&mut self, clock_synchronization_enabled: bool) {
         self.clock_synchronization_enabled = clock_synchronization_enabled;
+    }
+
+    pub fn in_transit_message_tags(&mut self) -> &mut InTransitMessageRecordQueue {
+        &mut self.in_transit_message_tags
     }
 
     pub fn set_server_hostname(&mut self, server_hostname: String) {

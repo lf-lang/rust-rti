@@ -156,6 +156,14 @@ impl FederationRTI {
         self.number_of_enclaves
     }
 
+    pub fn max_start_time(&mut self) -> i64 {
+        self.max_start_time
+    }
+
+    pub fn num_feds_proposed_start(&mut self) -> i32 {
+        self.num_feds_proposed_start
+    }
+
     pub fn federation_id(&mut self) -> String {
         self.federation_id.clone()
     }
@@ -170,6 +178,14 @@ impl FederationRTI {
 
     pub fn set_number_of_enclaves(&mut self, number_of_enclaves: i32) {
         self.number_of_enclaves = number_of_enclaves;
+    }
+
+    pub fn set_max_start_time(&mut self, max_start_time: i64) {
+        self.max_start_time = max_start_time;
+    }
+
+    pub fn set_num_feds_proposed_start(&mut self, num_feds_proposed_start: i32) {
+        self.num_feds_proposed_start = num_feds_proposed_start;
     }
 
     pub fn set_federation_id(&mut self, federation_id: String) {

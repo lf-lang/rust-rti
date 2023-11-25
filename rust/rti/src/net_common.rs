@@ -20,9 +20,22 @@
  */
 pub const FED_COM_BUFFER_SIZE: usize = 256;
 
+/**
+ * Delay the start of all federates by this amount.
+ * FIXME: More.
+ * FIXME: Should use the latency estimates that were
+ * acquired during initial clock synchronization.
+ */
+pub const DELAY_START: i64 = 1;
+
 pub enum MsgType {
     FED_IDS,
     TIMESTAMP,
+    TAGGED_MESSAGE,
+    NEXT_EVENT_TAG,
+    PROVISIONAL_TAG_ADVANCE_GRANT,
+    STOP_REQUEST,
+    ADDRESS_QUERY,
     P2P_SENDING_FED_ID,
     P2P_TAGGED_MESSAGE,
     NEIGHBOR_STRUCTURE,
@@ -35,11 +48,28 @@ impl MsgType {
         match self {
             MsgType::FED_IDS => 1,
             MsgType::TIMESTAMP => 2,
+            MsgType::TAGGED_MESSAGE => 5,
+            MsgType::NEXT_EVENT_TAG => 6,
+            MsgType::PROVISIONAL_TAG_ADVANCE_GRANT => 8,
+            MsgType::STOP_REQUEST => 10,
+            MsgType::ADDRESS_QUERY => 13,
             MsgType::P2P_SENDING_FED_ID => 15,
             MsgType::P2P_TAGGED_MESSAGE => 17,
             MsgType::NEIGHBOR_STRUCTURE => 24,
             MsgType::UDP_PORT => 254,
             MsgType::ACK => 255,
+        }
+    }
+
+    pub fn to_msg_type(val: u8) -> MsgType {
+        match val {
+            2 => MsgType::TIMESTAMP,
+            5 => MsgType::TAGGED_MESSAGE,
+            6 => MsgType::NEXT_EVENT_TAG,
+            8 => MsgType::PROVISIONAL_TAG_ADVANCE_GRANT,
+            10 => MsgType::STOP_REQUEST,
+            13 => MsgType::ADDRESS_QUERY,
+            _ => todo!(),
         }
     }
 }

@@ -10,7 +10,11 @@ mod constants;
 mod enclave;
 mod federate;
 mod federation_rti;
+mod message_record {
+    pub mod message_record;
+}
 mod net_common;
+mod net_util;
 mod server;
 mod tag;
 
@@ -174,8 +178,8 @@ pub fn initialize_federates(rti: &mut FederationRTI) {
 }
 
 fn initialize_federate(fed: &mut Federate, id: u16) {
-    let mut enclave = Enclave::new();
-    enclave.initialize_enclave();
+    let mut enclave = fed.enclave();
+    enclave.initialize_enclave(id);
     // TODO: fed.set_in_transit_message_tags();
     // TODO: fed.set_server_ip_addr();
 }
