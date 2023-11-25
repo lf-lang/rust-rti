@@ -26,7 +26,7 @@ pub enum MsgType {
     P2P_SENDING_FED_ID,
     P2P_TAGGED_MESSAGE,
     NEIGHBOR_STRUCTURE,
-    MSG_TYPE_UDP_PORT,
+    UDP_PORT,
     ACK,
 }
 
@@ -38,7 +38,7 @@ impl MsgType {
             MsgType::P2P_SENDING_FED_ID => 15,
             MsgType::P2P_TAGGED_MESSAGE => 17,
             MsgType::NEIGHBOR_STRUCTURE => 24,
-            MsgType::MSG_TYPE_UDP_PORT => 254,
+            MsgType::UDP_PORT => 254,
             MsgType::ACK => 255,
         }
     }

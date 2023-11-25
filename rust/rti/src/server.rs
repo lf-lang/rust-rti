@@ -15,6 +15,7 @@ use std::thread::JoinHandle;
 
 use crate::constants::*;
 use crate::net_common::*;
+use crate::ClockSyncStat;
 use crate::Enclave;
 use crate::FedState;
 use crate::FedState::*;
@@ -27,7 +28,7 @@ enum SocketType {
 }
 
 // impl SocketType {
-//     pub fn to_inT(&self) -> i32 {
+//     pub fn to_int(&self) -> i32 {
 //         match self {
 //             SocketType::TCP => 0,
 //             SocketType::UDP => 1,
@@ -107,7 +108,11 @@ impl Server {
                                 &mut stream,
                                 cloned_rti.clone(),
                             )
-                        // TODO: Implement self.receive_udp_message_and_set_up_clock_sync()
+                            && self.receive_udp_message_and_set_up_clock_sync(
+                                fed_id.try_into().unwrap(),
+                                &mut stream,
+                                cloned_rti.clone(),
+                            )
                         {
                             // Create a thread to communicate with the federate.
                             // This has to be done after clock synchronization is finished
@@ -339,7 +344,7 @@ impl Server {
         _f_rti: Arc<Mutex<FederationRTI>>,
     ) -> bool {
         println!(
-            "RTI waiting for MSG_TYPE_NEIGHBOR_STRUCTURE from federate {}.",
+            "RTI waiting for MsgType::NEIGHBOR_STRUCTURE from federate {}.",
             fed_id
         );
         let cloned_rti = Arc::clone(&_f_rti);
@@ -349,13 +354,13 @@ impl Server {
         while match stream.read(&mut connection_info_header) {
             Ok(first_recv_size) => {
                 if connection_info_header[0] != MsgType::NEIGHBOR_STRUCTURE.to_byte() {
-                    println!("RTI was expecting a MSG_TYPE_UDP_PORT message from federate {}. Got {} instead. Rejecting federate.", fed_id, connection_info_header[0]);
+                    println!("RTI was expecting a MsgType::NEIGHBOR_STRUCTURE message from federate {}. Got {} instead. Rejecting federate.", fed_id, connection_info_header[0]);
                     Self::send_reject(ErrType::UNEXPECTED_MESSAGE);
                     false
                 } else {
                     let idx: usize = fed_id.into();
-                    let federate: &mut Federate = &mut locked_rti.enclaves()[idx];
-                    let enclave: &mut Enclave = federate.enclave();
+                    let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+                    let enclave: &mut Enclave = fed.enclave();
                     enclave.set_num_upstream(connection_info_header[1].into());
                     enclave.set_num_downstream(
                         connection_info_header[1 + mem::size_of::<i32>()].into(),
@@ -424,7 +429,7 @@ impl Server {
                             false
                         }
                         Err(_) => {
-                            println!("RTI failed to read MSG_TYPE_NEIGHBOR_STRUCTURE message body from federate {}.",
+                            println!("RTI failed to read MsgType::NEIGHBOR_STRUCTURE message body from federate {}.",
                             fed_id);
                             false
                         }
@@ -434,12 +439,96 @@ impl Server {
                 }
             }
             Err(_) => {
-                println!("RTI failed to read MSG_TYPE_NEIGHBOR_STRUCTURE message header from federate {}.",
+                println!("RTI failed to read MsgType::NEIGHBOR_STRUCTURE message header from federate {}.",
                 fed_id);
                 stream.shutdown(Shutdown::Both).unwrap();
                 false
             }
         } {}
+        true
+    }
+
+    fn receive_udp_message_and_set_up_clock_sync(
+        &mut self,
+        fed_id: u16,
+        stream: &mut TcpStream,
+        _f_rti: Arc<Mutex<FederationRTI>>,
+    ) -> bool {
+        println!(
+            "RTI waiting for MsgType::UDP_PORT from federate {}.",
+            fed_id
+        );
+        let cloned_rti = Arc::clone(&_f_rti);
+        let mut response = vec![0 as u8; 1 + mem::size_of::<u16>()];
+        while match stream.read(&mut response) {
+            Ok(first_recv_size) => {
+                if response[0] != MsgType::UDP_PORT.to_byte() {
+                    println!("RTI was expecting a MSG_TYPE_UDP_PORT message from federate {}. Got {} instead. Rejecting federate.", fed_id, response[0]);
+                    Self::send_reject(ErrType::UNEXPECTED_MESSAGE);
+                    return false;
+                } else {
+                    let mut clock_sync_global_status = ClockSyncStat::CLOCK_SYNC_INIT;
+                    {
+                        let mut locked_rti = cloned_rti.lock().unwrap();
+                        clock_sync_global_status = locked_rti.clock_sync_global_status();
+                    }
+
+                    if clock_sync_global_status >= ClockSyncStat::CLOCK_SYNC_INIT {
+                        // If no initial clock sync, no need perform initial clock sync.
+                        let federate_UDP_port_number =
+                            u16::from_le_bytes(response[1..3].try_into().unwrap());
+
+                        println!(
+                            "RTI got MsgType::UDP_PORT {} from federate {}.",
+                            federate_UDP_port_number, fed_id
+                        );
+                        // A port number of UINT16_MAX means initial clock sync should not be performed.
+                        if federate_UDP_port_number != u16::MAX {
+                            // TODO: Implement this if body
+                            println!(
+                                "RTI finished initial clock synchronization with federate {}.",
+                                fed_id
+                            );
+                        }
+                        if clock_sync_global_status >= ClockSyncStat::CLOCK_SYNC_ON {
+                            // If no runtime clock sync, no need to set up the UDP port.
+                            if federate_UDP_port_number > 0 {
+                                // Initialize the UDP_addr field of the federate struct
+                                // TODO: Handle below assignments
+                                // fed.UDP_addr.sin_family = AF_INET;
+                                // fed.UDP_addr.sin_port = htons(federate_UDP_port_number);
+                                // fed.UDP_addr.sin_addr = fed->server_ip_addr;
+                            }
+                        } else {
+                            // Disable clock sync after initial round.
+                            let mut locked_rti = cloned_rti.lock().unwrap();
+                            let idx: usize = fed_id.into();
+                            let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+                            fed.set_clock_synchronization_enabled(false);
+                        }
+                    } else {
+                        // No clock synchronization at all.
+                        // Clock synchronization is universally disabled via the clock-sync command-line parameter
+                        // (-c off was passed to the RTI).
+                        // Note that the federates are still going to send a MSG_TYPE_UDP_PORT message but with a payload (port) of -1.
+                        let mut locked_rti = cloned_rti.lock().unwrap();
+                        let idx: usize = fed_id.into();
+                        let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+                        fed.set_clock_synchronization_enabled(false);
+                    }
+                }
+
+                false
+            }
+            Err(e) => {
+                println!(
+                    "RTI failed to read MsgType::UDP_PORT message from federate {}.",
+                    fed_id
+                );
+                false
+            }
+        } {}
+
         true
     }
 
