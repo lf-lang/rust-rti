@@ -14,6 +14,7 @@
  */
 use crate::constants::*;
 use crate::federate::*;
+use crate::ClockSyncStat;
 
 /**
  * Structure that an RTI instance uses to keep track of its own and its
@@ -97,7 +98,7 @@ pub struct FederationRTI {
      * Indicates whether clock sync is globally on for the federation. Federates
      * can still selectively disable clock synchronization if they wanted to.
      */
-    // TODO: clock_sync_stat clock_sync_global_status;
+    clock_sync_global_status: ClockSyncStat,
 
     /**
      * Frequency (period in nanoseconds) between clock sync attempts.
@@ -138,7 +139,7 @@ impl FederationRTI {
             socket_descriptor_TCP: -1,
             final_port_UDP: u16::MAX,
             socket_descriptor_UDP: -1,
-            // clock_sync_global_status: ,
+            clock_sync_global_status: ClockSyncStat::CLOCK_SYNC_INIT,
             clock_sync_period_ns: 10 * 1000000,
             clock_sync_exchanges_per_interval: 10,
             authentication_enabled: false,
@@ -161,6 +162,10 @@ impl FederationRTI {
 
     pub fn user_specified_port(&mut self) -> u16 {
         self.user_specified_port
+    }
+
+    pub fn clock_sync_global_status(&mut self) -> ClockSyncStat {
+        self.clock_sync_global_status.clone()
     }
 
     pub fn set_number_of_enclaves(&mut self, number_of_enclaves: i32) {

@@ -23,6 +23,23 @@ use crate::federation_rti::*;
 
 use server::Server;
 
+#[derive(PartialEq, PartialOrd, Clone)]
+pub enum ClockSyncStat {
+    CLOCK_SYNC_Off,
+    CLOCK_SYNC_INIT,
+    CLOCK_SYNC_ON,
+}
+
+impl ClockSyncStat {
+    pub fn to_int(&self) -> i32 {
+        match self {
+            ClockSyncStat::CLOCK_SYNC_Off => 0,
+            ClockSyncStat::CLOCK_SYNC_INIT => 1,
+            ClockSyncStat::CLOCK_SYNC_ON => 2,
+        }
+    }
+}
+
 pub fn process_args(rti: &mut FederationRTI, argv: &[String]) -> Result<(), &'static str> {
     let mut idx = 1;
     let argc = argv.len();
