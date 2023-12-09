@@ -172,6 +172,10 @@ impl FederationRTI {
         self.user_specified_port
     }
 
+    pub fn final_port_UDP(&mut self) -> u16 {
+        self.final_port_UDP
+    }
+
     pub fn clock_sync_global_status(&mut self) -> ClockSyncStat {
         self.clock_sync_global_status.clone()
     }

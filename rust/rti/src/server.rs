@@ -58,8 +58,15 @@ impl Server {
         // accept connections and process them, spawning a new thread for each one
         println!("Server listening on port {}", self.port);
         let mut start_time = Arc::new(Mutex::new(StartTime::new()));
-        let pair = Arc::new((Mutex::new(false), Condvar::new()));
-        let handles = self.connect_to_federates(socket, _f_rti, start_time, pair);
+        let received_start_times = Arc::new((Mutex::new(false), Condvar::new()));
+        let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
+        let handles = self.connect_to_federates(
+            socket,
+            _f_rti,
+            start_time,
+            received_start_times,
+            sent_start_time,
+        );
 
         println!("RTI: All expected federates have connected. Starting execution.");
 
@@ -92,7 +99,8 @@ impl Server {
         socket: TcpListener,
         mut _f_rti: FederationRTI,
         start_time: Arc<Mutex<tag::StartTime>>,
-        pair: Arc<(Mutex<bool>, Condvar)>,
+        received_start_times: Arc<(Mutex<bool>, Condvar)>,
+        sent_start_time: Arc<(Mutex<bool>, Condvar)>,
     ) -> Vec<JoinHandle<()>> {
         // TODO: Error-handling of unwrap()
         let number_of_enclaves: usize = _f_rti.number_of_enclaves().try_into().unwrap();
@@ -128,9 +136,16 @@ impl Server {
                             // or that thread may end up attempting to handle incoming clock
                             // synchronization messages.
                             let mut cloned_start_time = Arc::clone(&start_time);
-                            let mut cloned_pair = Arc::clone(&pair);
+                            let mut cloned_received_start_times = Arc::clone(&received_start_times);
+                            let mut cloned_sent_start_time = Arc::clone(&sent_start_time);
                             let _handle = thread::spawn(move || {
                                 // This closure is the implementation of federate_thread_TCP in rti_lib.c
+                                {
+                                    let mut locked_rti = cloned_rti.lock().unwrap();
+                                    let fed: &mut Federate =
+                                        &mut locked_rti.enclaves()[fed_id as usize];
+                                    fed.set_stream(stream.try_clone().unwrap());
+                                }
 
                                 // Buffer for incoming messages.
                                 // This does not constrain the message size because messages
@@ -139,92 +154,95 @@ impl Server {
 
                                 // Listen for messages from the federate.
                                 while true {
+                                    // Read no more than one byte to get the message type.
                                     {
                                         let mut locked_rti = cloned_rti.lock().unwrap();
-                                        let fed: &mut Federate =
-                                            &mut locked_rti.enclaves()[fed_id as usize];
-                                        if fed.enclave().state() == FedState::NOT_CONNECTED {
-                                            fed.set_stream(stream);
+                                        let mut enclaves = locked_rti.enclaves();
+                                        // FIXME:: Replace "as usize" properly.
+                                        let fed: &mut Federate = &mut enclaves[fed_id as usize];
+                                        println!("[connect_to_federates] FED_ID = {}", fed_id);
+                                        let mut enclave = fed.enclave();
+                                        if enclave.state() == FedState::NOT_CONNECTED {
                                             break;
                                         }
                                     }
-                                    // Read no more than one byte to get the message type.
                                     while match stream.read(&mut buffer) {
+                                        // let mut _stream = fed.stream().as_ref().unwrap();
+                                        // while match _stream.read(&mut buffer) {
                                         Ok(bytes_read) => {
                                             {
-                                                let mut locked_rti = cloned_rti.lock().unwrap();
-                                                let fed: &mut Federate =
-                                                    &mut locked_rti.enclaves()[fed_id as usize];
-
                                                 if bytes_read < 1 {
                                                     // Socket is closed
                                                     println!("RTI: Socket to federate {} is closed. Exiting the thread.",
-                                                        fed.enclave().id());
-                                                    fed.enclave()
-                                                        .set_state(FedState::NOT_CONNECTED);
+                                                        fed_id);
+                                                    // TODO: Enable the following line.
+                                                    // fed.enclave()
+                                                    //     .set_state(FedState::NOT_CONNECTED);
                                                     // FIXME: We need better error handling here, but do not stop execution here.
                                                     ()
                                                 }
                                                 println!(
                                                     "RTI: Received message type {} from federate {}.",
                                                     buffer[0],
-                                                    fed.enclave().id()
+                                                    fed_id
                                                 );
-                                            }
-                                            match MsgType::to_msg_type(buffer[0]) {
-                                                MsgType::TIMESTAMP => Self::handle_timestamp(
-                                                    &buffer,
-                                                    fed_id.try_into().unwrap(),
-                                                    &mut stream,
-                                                    cloned_rti.clone(),
-                                                    cloned_start_time.clone(),
-                                                    cloned_pair.clone(),
-                                                ),
-                                                MsgType::ADDRESS_QUERY => {
-                                                    Self::handle_address_query(cloned_rti.clone())
-                                                }
-                                                MsgType::TAGGED_MESSAGE => {
-                                                    Self::handle_timed_message(
-                                                        &buffer,
-                                                        fed_id.try_into().unwrap(),
-                                                        &mut stream,
-                                                        cloned_rti.clone(),
-                                                        cloned_start_time.clone(),
-                                                    )
-                                                }
-                                                MsgType::NEXT_EVENT_TAG => {
-                                                    Self::handle_next_event_tag(
-                                                        &buffer,
-                                                        fed_id.try_into().unwrap(),
-                                                        &mut stream,
-                                                        cloned_rti.clone(),
-                                                        cloned_start_time.clone(),
-                                                    )
-                                                }
-                                                MsgType::STOP_REQUEST => {
-                                                    Self::handle_stop_request_message(
-                                                        &buffer,
-                                                        fed_id.try_into().unwrap(),
-                                                        &mut stream,
-                                                        cloned_rti.clone(),
-                                                        cloned_start_time.clone(),
-                                                    )
-                                                } // FIXME: Reviewed until here.
-                                                // Need to also look at
-                                                // notify_advance_grant_if_safe()
-                                                // and notify_downstream_advance_grant_if_safe()
-                                                _ => {
-                                                    let mut locked_rti = cloned_rti.lock().unwrap();
-                                                    let fed: &mut Federate =
-                                                        &mut locked_rti.enclaves()[fed_id as usize];
-                                                    println!("RTI received from federate {} an unrecognized TCP message type: {}.", fed.enclave().id(), buffer[0]);
-                                                }
                                             }
 
                                             false
                                         }
                                         Err(_) => false,
                                     } {}
+                                    match MsgType::to_msg_type(buffer[0]) {
+                                        MsgType::TIMESTAMP => Self::handle_timestamp(
+                                            &buffer,
+                                            fed_id.try_into().unwrap(),
+                                            // &mut _stream,
+                                            cloned_rti.clone(),
+                                            cloned_start_time.clone(),
+                                            cloned_received_start_times.clone(),
+                                            cloned_sent_start_time.clone(),
+                                        ),
+                                        MsgType::ADDRESS_QUERY => {
+                                            Self::handle_address_query(cloned_rti.clone())
+                                        }
+                                        MsgType::TAGGED_MESSAGE => {
+                                            Self::handle_timed_message(
+                                                &buffer,
+                                                fed_id.try_into().unwrap(),
+                                                // &mut _stream,
+                                                cloned_rti.clone(),
+                                                cloned_start_time.clone(),
+                                            )
+                                        }
+                                        MsgType::NEXT_EVENT_TAG => {
+                                            Self::handle_next_event_tag(
+                                                &buffer,
+                                                fed_id.try_into().unwrap(),
+                                                // &mut _stream,
+                                                cloned_rti.clone(),
+                                                cloned_start_time.clone(),
+                                                cloned_sent_start_time.clone(),
+                                            )
+                                        }
+                                        MsgType::STOP_REQUEST => {
+                                            Self::handle_stop_request_message(
+                                                &buffer,
+                                                fed_id.try_into().unwrap(),
+                                                // &mut _stream,
+                                                cloned_rti.clone(),
+                                                cloned_start_time.clone(),
+                                            )
+                                        } // FIXME: Reviewed until here.
+                                        // Need to also look at
+                                        // notify_advance_grant_if_safe()
+                                        // and notify_downstream_advance_grant_if_safe()
+                                        _ => {
+                                            let mut locked_rti = cloned_rti.lock().unwrap();
+                                            let fed: &mut Federate =
+                                                &mut locked_rti.enclaves()[fed_id as usize];
+                                            println!("RTI received from federate {} an unrecognized TCP message type: {}.", fed.enclave().id(), buffer[0]);
+                                        }
+                                    }
                                 }
                             });
                             // TODO: Need to set handle to federate.thread_id?
@@ -244,22 +262,26 @@ impl Server {
         // All federates have connected.
         println!("All federates have connected to RTI.");
 
-        // TODO: Implement the following.
-        // if (_f_rti->clock_sync_global_status >= clock_sync_on) {
-        //     // Create the thread that performs periodic PTP clock synchronization sessions
-        //     // over the UDP channel, but only if the UDP channel is open and at least one
-        //     // federate is performing runtime clock synchronization.
-        //     bool clock_sync_enabled = false;
-        //     for (int i = 0; i < _f_rti->number_of_enclaves; i++) {
-        //         if ((_f_rti->enclaves[i])->clock_synchronization_enabled) {
-        //             clock_sync_enabled = true;
-        //             break;
-        //         }
-        //     }
-        //     if (_f_rti->final_port_UDP != UINT16_MAX && clock_sync_enabled) {
-        //         lf_thread_create(&_f_rti->clock_thread, clock_synchronization_thread, NULL);
-        //     }
-        // }
+        let cloned_rti = Arc::clone(&arc_rti);
+        let mut locked_rti = cloned_rti.lock().unwrap();
+        let clock_sync_global_status = locked_rti.clock_sync_global_status();
+        if clock_sync_global_status >= ClockSyncStat::CLOCK_SYNC_ON {
+            // Create the thread that performs periodic PTP clock synchronization sessions
+            // over the UDP channel, but only if the UDP channel is open and at least one
+            // federate is performing runtime clock synchronization.
+            let mut clock_sync_enabled = false;
+            for i in 0..locked_rti.number_of_enclaves() {
+                if locked_rti.enclaves()[i as usize].clock_synchronization_enabled() {
+                    clock_sync_enabled = true;
+                    break;
+                }
+            }
+            if locked_rti.final_port_UDP() != u16::MAX && clock_sync_enabled {
+                println!("\tNEED to create clock_synchronization_thread thread..");
+                // TODO: Implement the following.
+                // lf_thread_create(&_f_rti->clock_thread, clock_synchronization_thread, NULL);
+            }
+        }
 
         handle_list
     }
@@ -630,10 +652,11 @@ impl Server {
     fn handle_timestamp(
         buffer: &Vec<u8>,
         fed_id: u16,
-        stream: &mut TcpStream,
+        // stream: &mut TcpStream,
         _f_rti: Arc<Mutex<FederationRTI>>,
         start_time: Arc<Mutex<tag::StartTime>>,
-        pair: Arc<(Mutex<bool>, Condvar)>,
+        received_start_times: Arc<(Mutex<bool>, Condvar)>,
+        sent_start_time: Arc<(Mutex<bool>, Condvar)>,
     ) {
         let buffer_size = mem::size_of::<i64>();
         // FIXME: Check whether swap_bytes_if_big_endian_int64() is implemented correctly
@@ -655,8 +678,8 @@ impl Server {
         }
         if num_feds_proposed_start == number_of_enclaves {
             // All federates have proposed a start time.
-            let pair2 = Arc::clone(&pair);
-            let (lock, condvar) = &*pair2;
+            let received_start_times_notifier = Arc::clone(&received_start_times);
+            let (lock, condvar) = &*received_start_times_notifier;
             let mut notified = lock.lock().unwrap();
             *notified = true;
             condvar.notify_all();
@@ -665,7 +688,7 @@ impl Server {
             // wait for a notification.
             while num_feds_proposed_start < number_of_enclaves {
                 // FIXME: Should have a timeout here?
-                let (lock, condvar) = &*pair;
+                let (lock, condvar) = &*received_start_times;
                 let mut notified = lock.lock().unwrap();
                 while !*notified {
                     notified = condvar.wait(notified).unwrap();
@@ -696,6 +719,7 @@ impl Server {
             let mut locked_rti = _f_rti.lock().unwrap();
             let idx: usize = fed_id.into();
             let my_fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+            let mut stream = my_fed.stream().as_ref().unwrap();
             match stream.write(&start_time_buffer) {
                 Ok(..) => {}
                 Err(_e) => {
@@ -707,8 +731,15 @@ impl Server {
                 }
             }
 
+            // Update state for the federate to indicate that the MSG_TYPE_TIMESTAMP
+            // message has been sent. That MSG_TYPE_TIMESTAMP message grants time advance to
+            // the federate to the start time.
             my_fed.enclave().set_state(FedState::GRANTED);
-            // TODO: lf_cond_broadcast(&sent_start_time);
+            let sent_start_time_notifier = Arc::clone(&sent_start_time);
+            let (lock, condvar) = &*sent_start_time_notifier;
+            let mut notified = lock.lock().unwrap();
+            *notified = true;
+            condvar.notify_all();
             println!(
                 "RTI sent start time {} to federate {}.",
                 locked_start_time.start_time(),
@@ -722,7 +753,7 @@ impl Server {
     fn handle_timed_message(
         buffer: &Vec<u8>,
         fed_id: u16,
-        stream: &mut TcpStream,
+        // stream: &mut TcpStream,
         _f_rti: Arc<Mutex<FederationRTI>>,
         start_time: Arc<Mutex<tag::StartTime>>,
     ) {
@@ -731,9 +762,10 @@ impl Server {
     fn handle_next_event_tag(
         buffer: &Vec<u8>,
         fed_id: u16,
-        stream: &mut TcpStream,
+        // stream: &mut TcpStream,
         _f_rti: Arc<Mutex<FederationRTI>>,
         start_time: Arc<Mutex<tag::StartTime>>,
+        sent_start_time: Arc<(Mutex<bool>, Condvar)>,
     ) {
         // for x in buffer {
         //     print!("{:02X?} ", x);
@@ -759,18 +791,24 @@ impl Server {
             let mut locked_start_time = start_time.lock().unwrap();
             start_time_value = locked_start_time.start_time();
         }
-        println!(
-            "intended_tag.time = ({}),  locked_start_time = ({})",
-            intended_tag.time(),
-            start_time_value
-        );
+        // println!(
+        //     "intended_tag.time = ({}),  locked_start_time = ({})",
+        //     intended_tag.time(),
+        //     start_time_value
+        // );
         println!(
             "RTI received from federate {} the Next Event Tag (NET) ({},{})",
             enclave_id,
             intended_tag.time() - start_time_value,
             intended_tag.microstep()
         );
-        Self::update_federate_next_event_tag_locked(_f_rti, fed_id, intended_tag, start_time_value);
+        Self::update_federate_next_event_tag_locked(
+            _f_rti,
+            fed_id,
+            intended_tag,
+            start_time_value,
+            sent_start_time,
+        );
     }
 
     fn update_federate_next_event_tag_locked(
@@ -778,6 +816,7 @@ impl Server {
         fed_id: u16,
         mut next_event_tag: Tag,
         start_time: Instant,
+        sent_start_time: Arc<(Mutex<bool>, Condvar)>,
     ) {
         let mut min_in_transit_tag = Tag::new(0, 0);
         {
@@ -792,13 +831,19 @@ impl Server {
         if Tag::lf_tag_compare(&min_in_transit_tag, &next_event_tag) < 0 {
             next_event_tag = min_in_transit_tag.clone();
         }
-        Enclave::update_enclave_next_event_tag_locked(_f_rti, fed_id, next_event_tag, start_time);
+        Enclave::update_enclave_next_event_tag_locked(
+            _f_rti,
+            fed_id,
+            next_event_tag,
+            start_time,
+            sent_start_time,
+        );
     }
 
     fn handle_stop_request_message(
         buffer: &Vec<u8>,
         fed_id: u16,
-        stream: &mut TcpStream,
+        // stream: &mut TcpStream,
         _f_rti: Arc<Mutex<FederationRTI>>,
         start_time: Arc<Mutex<tag::StartTime>>,
     ) {

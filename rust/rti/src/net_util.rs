@@ -34,10 +34,10 @@ impl NetUtil {
     pub fn encode_int32(data: i32, buffer: &mut Vec<u8>, index: usize) {
         // This strategy is fairly brute force, but it avoids potential
         // alignment problems.  Note that this assumes an int32_t is four bytes.
-        buffer[0] = (data & 0xff) as u8;
-        buffer[1] = ((data & 0xff00) >> 8) as u8;
-        buffer[2] = ((data & 0xff0000) >> 16) as u8;
-        buffer[3] = ((data & (0xff000000u32 as i32)) >> 24) as u8;
+        buffer[index] = (data & 0xff) as u8;
+        buffer[index + 1] = ((data & 0xff00) >> 8) as u8;
+        buffer[index + 2] = ((data & 0xff0000) >> 16) as u8;
+        buffer[index + 3] = ((data & (0xff000000u32 as i32)) >> 24) as u8;
     }
 
     pub fn extract_tag(buffer: &[u8]) -> Tag {
@@ -52,7 +52,7 @@ impl NetUtil {
                 .try_into()
                 .unwrap(),
         );
-        println!("\ttime = ({}),  microstep = ({})", time, microstep);
+        // println!("\ttime = ({}),  microstep = ({})", time, microstep);
         Tag::new(time, microstep)
     }
 }

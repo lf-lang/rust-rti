@@ -73,6 +73,10 @@ impl Federate {
         &self.stream
     }
 
+    pub fn clock_synchronization_enabled(&mut self) -> bool {
+        self.clock_synchronization_enabled
+    }
+
     pub fn set_requested_stop(&mut self, requested_stop: bool) {
         self.requested_stop = requested_stop;
     }

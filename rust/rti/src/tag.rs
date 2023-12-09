@@ -103,12 +103,13 @@ impl Tag {
         let tag1_microstep = tag1.microstep();
         let tag2_microstep = tag2.microstep();
         if tag1_time < tag2_time {
-            println!("{} < {}", tag1_time, tag2_time);
+            // println!("{} < {}", tag1_time, tag2_time);
             -1
         } else if tag1_time > tag2_time {
+            // println!("{} > {}", tag1_time, tag2_time);
             1
         } else if tag1_microstep < tag2_microstep {
-            println!("{} and microstep < {}", tag1_microstep, tag2_microstep);
+            // println!("{} and microstep < {}", tag1_microstep, tag2_microstep);
             -1
         } else if tag1_microstep > tag2_microstep {
             1
@@ -119,11 +120,11 @@ impl Tag {
 
     pub fn lf_delay_tag(tag: &Tag, interval: Interval) -> Tag {
         if tag.time() == i64::MIN || interval < Some(0) {
-            println!(
-                "tag.time() == i64::MIN || interval < Some(0),  (interval, time) = ({:?},{})",
-                interval,
-                tag.time()
-            );
+            // println!(
+            //     "tag.time() == i64::MIN || interval < Some(0),  (interval, time) = ({:?},{})",
+            //     interval,
+            //     tag.time()
+            // );
             return tag.clone();
         }
         let mut result = tag.clone();
@@ -132,20 +133,20 @@ impl Tag {
             // This is probably the only reasonable thing to do with overflowing
             // microsteps.
             result.set_microstep(result.microstep() + 1);
-            println!(
-                "interval ==0,  (time, microstep) = ({},{})",
-                result.time(),
-                result.microstep()
-            );
+            // println!(
+            //     "interval == 0,  (time, microstep) = ({},{})",
+            //     result.time(),
+            //     result.microstep()
+            // );
         } else {
             // Note that overflow in C is undefined for signed variables.
             if i64::MAX - interval.unwrap() < result.time() {
                 result.set_time(i64::MAX);
-                println!(
-                    "i64::MAX - interval.unwrap() < result.time()  (time, microstep) = ({},{})",
-                    result.time(),
-                    result.microstep()
-                );
+                // println!(
+                //     "i64::MAX - interval.unwrap() < result.time()  (time, microstep) = ({},{})",
+                //     result.time(),
+                //     result.microstep()
+                // );
             } else {
                 // FIXME: Handle unwrap() properly.
                 result.set_time(result.time() + interval.unwrap());
@@ -165,16 +166,16 @@ impl Tag {
             && result.time() != i64::MIN
             && result.time() != i64::MAX
         {
-            println!("interval={:?}, result time={}", interval, result.time());
+            // println!("interval={:?}, result time={}", interval, result.time());
             result.set_time(result.time() - 1);
             result.set_microstep(u32::MAX);
         }
 
-        println!(
-            "(time, microstep) = ({},{})",
-            result.time(),
-            result.microstep()
-        );
+        // println!(
+        //     "(time, microstep) = ({},{})",
+        //     result.time(),
+        //     result.microstep()
+        // );
         result
     }
 }
