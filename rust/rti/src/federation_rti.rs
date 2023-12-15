@@ -14,6 +14,7 @@
  */
 use crate::constants::*;
 use crate::federate::*;
+use crate::tag::Tag;
 use crate::ClockSyncStat;
 
 /**
@@ -39,7 +40,7 @@ pub struct FederationRTI {
     number_of_enclaves: i32,
 
     // RTI's decided stop tag for enclaves
-    // TODO: max_stop_tag:Tag,
+    max_stop_tag: Tag,
 
     // Number of enclaves handling stop
     num_enclaves_handling_stop: i32,
@@ -126,7 +127,7 @@ impl FederationRTI {
         FederationRTI {
             enclaves: Vec::new(),
             // enclave_rti related initializations
-            // max_stop_tag: ,
+            max_stop_tag: Tag::never_tag(),
             number_of_enclaves: 0,
             num_enclaves_handling_stop: 0,
             // federation_rti related initializations
@@ -152,8 +153,16 @@ impl FederationRTI {
         &mut self.enclaves
     }
 
+    pub fn max_stop_tag(&self) -> Tag {
+        self.max_stop_tag.clone()
+    }
+
     pub fn number_of_enclaves(&mut self) -> i32 {
         self.number_of_enclaves
+    }
+
+    pub fn num_enclaves_handling_stop(&self) -> i32 {
+        self.num_enclaves_handling_stop
     }
 
     pub fn max_start_time(&mut self) -> i64 {
@@ -180,8 +189,20 @@ impl FederationRTI {
         self.clock_sync_global_status.clone()
     }
 
+    pub fn stop_in_progress(&self) -> bool {
+        self.stop_in_progress
+    }
+
+    pub fn set_max_stop_tag(&mut self, max_stop_tag: Tag) {
+        self.max_stop_tag = max_stop_tag.clone();
+    }
+
     pub fn set_number_of_enclaves(&mut self, number_of_enclaves: i32) {
         self.number_of_enclaves = number_of_enclaves;
+    }
+
+    pub fn set_num_enclaves_handling_stop(&mut self, num_enclaves_handling_stop: i32) {
+        self.num_enclaves_handling_stop = num_enclaves_handling_stop;
     }
 
     pub fn set_max_start_time(&mut self, max_start_time: i64) {
@@ -198,5 +219,9 @@ impl FederationRTI {
 
     pub fn set_port(&mut self, user_specified_port: u16) {
         self.user_specified_port = user_specified_port;
+    }
+
+    pub fn set_stop_in_progress(&mut self, stop_in_progress: bool) {
+        self.stop_in_progress = stop_in_progress;
     }
 }

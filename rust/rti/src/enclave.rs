@@ -458,7 +458,7 @@ impl Enclave {
             println!("Earliest upstream message time for fed/encl {} is ({},{}) (adjusted by after delay). Granting tag advance for ({},{})",
                     fed_id,
                     t_d.time() - start_time, t_d.microstep(),
-                    next_event_tag.time() - start_time,
+                    next_event_tag.time(), // - start_time,
                     next_event_tag.microstep());
             result.set_tag(next_event_tag);
         } else if Tag::lf_tag_compare(&t_d_zero_delay, &next_event_tag) == 0      // The enclave has something to do.
@@ -545,14 +545,12 @@ impl Enclave {
         start_time: Instant,
         sent_start_time: Arc<(Mutex<bool>, Condvar)>,
     ) {
-        let mut stream = None;
         {
             let mut locked_rti = _f_rti.lock().unwrap();
             let enclaves = locked_rti.enclaves();
             let idx: usize = fed_id.into();
             let fed: &Federate = &enclaves[idx];
             let mut e = fed.e();
-            stream = fed.stream().as_ref(); //.unwrap();
             if e.state() == FedState::NOT_CONNECTED
                 || Tag::lf_tag_compare(&tag, &e.last_granted()) <= 0
                 || Tag::lf_tag_compare(&tag, &e.last_provisionally_granted()) <= 0

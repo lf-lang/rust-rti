@@ -41,6 +41,30 @@ enum SocketType {
 //     }
 // }
 
+struct StopGranted {
+    _lf_rti_stop_granted_already_sent_to_federates: bool,
+}
+
+impl StopGranted {
+    pub fn new() -> StopGranted {
+        StopGranted {
+            _lf_rti_stop_granted_already_sent_to_federates: false,
+        }
+    }
+
+    pub fn _lf_rti_stop_granted_already_sent_to_federates(&self) -> bool {
+        self._lf_rti_stop_granted_already_sent_to_federates
+    }
+
+    pub fn set_lf_rti_stop_granted_already_sent_to_federates(
+        &mut self,
+        _lf_rti_stop_granted_already_sent_to_federates: bool,
+    ) {
+        self._lf_rti_stop_granted_already_sent_to_federates =
+            _lf_rti_stop_granted_already_sent_to_federates;
+    }
+}
+
 pub struct Server {
     port: String,
 }
@@ -60,12 +84,14 @@ impl Server {
         let mut start_time = Arc::new(Mutex::new(StartTime::new()));
         let received_start_times = Arc::new((Mutex::new(false), Condvar::new()));
         let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
+        let mut stop_granted = Arc::new(Mutex::new(StopGranted::new()));
         let handles = self.connect_to_federates(
             socket,
             _f_rti,
             start_time,
             received_start_times,
             sent_start_time,
+            stop_granted,
         );
 
         println!("RTI: All expected federates have connected. Starting execution.");
@@ -101,6 +127,7 @@ impl Server {
         start_time: Arc<Mutex<tag::StartTime>>,
         received_start_times: Arc<(Mutex<bool>, Condvar)>,
         sent_start_time: Arc<(Mutex<bool>, Condvar)>,
+        mut stop_granted: Arc<Mutex<StopGranted>>,
     ) -> Vec<JoinHandle<()>> {
         // TODO: Error-handling of unwrap()
         let number_of_enclaves: usize = _f_rti.number_of_enclaves().try_into().unwrap();
@@ -138,6 +165,7 @@ impl Server {
                             let mut cloned_start_time = Arc::clone(&start_time);
                             let mut cloned_received_start_times = Arc::clone(&received_start_times);
                             let mut cloned_sent_start_time = Arc::clone(&sent_start_time);
+                            let mut cloned_stop_granted = Arc::clone(&stop_granted);
                             let _handle = thread::spawn(move || {
                                 // This closure is the implementation of federate_thread_TCP in rti_lib.c
                                 {
@@ -167,8 +195,6 @@ impl Server {
                                         }
                                     }
                                     while match stream.read(&mut buffer) {
-                                        // let mut _stream = fed.stream().as_ref().unwrap();
-                                        // while match _stream.read(&mut buffer) {
                                         Ok(bytes_read) => {
                                             {
                                                 if bytes_read < 1 {
@@ -196,7 +222,6 @@ impl Server {
                                         MsgType::TIMESTAMP => Self::handle_timestamp(
                                             &buffer,
                                             fed_id.try_into().unwrap(),
-                                            // &mut _stream,
                                             cloned_rti.clone(),
                                             cloned_start_time.clone(),
                                             cloned_received_start_times.clone(),
@@ -205,34 +230,34 @@ impl Server {
                                         MsgType::ADDRESS_QUERY => {
                                             Self::handle_address_query(cloned_rti.clone())
                                         }
-                                        MsgType::TAGGED_MESSAGE => {
-                                            Self::handle_timed_message(
-                                                &buffer,
-                                                fed_id.try_into().unwrap(),
-                                                // &mut _stream,
-                                                cloned_rti.clone(),
-                                                cloned_start_time.clone(),
-                                            )
-                                        }
-                                        MsgType::NEXT_EVENT_TAG => {
-                                            Self::handle_next_event_tag(
-                                                &buffer,
-                                                fed_id.try_into().unwrap(),
-                                                // &mut _stream,
-                                                cloned_rti.clone(),
-                                                cloned_start_time.clone(),
-                                                cloned_sent_start_time.clone(),
-                                            )
-                                        }
-                                        MsgType::STOP_REQUEST => {
-                                            Self::handle_stop_request_message(
-                                                &buffer,
-                                                fed_id.try_into().unwrap(),
-                                                // &mut _stream,
-                                                cloned_rti.clone(),
-                                                cloned_start_time.clone(),
-                                            )
-                                        } // FIXME: Reviewed until here.
+                                        MsgType::TAGGED_MESSAGE => Self::handle_timed_message(
+                                            &buffer,
+                                            fed_id.try_into().unwrap(),
+                                            cloned_rti.clone(),
+                                            cloned_start_time.clone(),
+                                        ),
+                                        MsgType::NEXT_EVENT_TAG => Self::handle_next_event_tag(
+                                            &buffer,
+                                            fed_id.try_into().unwrap(),
+                                            cloned_rti.clone(),
+                                            cloned_start_time.clone(),
+                                            cloned_sent_start_time.clone(),
+                                        ),
+                                        // MsgType::LOGICAL_TAG_COMPLETE => Self::handle_logical_tag_complete(
+                                        //     &buffer,
+                                        //     fed_id.try_into().unwrap(),
+                                        //     cloned_rti.clone(),
+                                        //     cloned_start_time.clone(),
+                                        //     cloned_sent_start_time.clone(),
+                                        // ),
+                                        MsgType::STOP_REQUEST => Self::handle_stop_request_message(
+                                            &buffer,
+                                            fed_id.try_into().unwrap(),
+                                            &mut stream,
+                                            cloned_rti.clone(),
+                                            cloned_start_time.clone(),
+                                            cloned_stop_granted.clone(),
+                                        ), // FIXME: Reviewed until here.
                                         // Need to also look at
                                         // notify_advance_grant_if_safe()
                                         // and notify_downstream_advance_grant_if_safe()
@@ -843,9 +868,295 @@ impl Server {
     fn handle_stop_request_message(
         buffer: &Vec<u8>,
         fed_id: u16,
-        // stream: &mut TcpStream,
+        stream: &mut TcpStream,
         _f_rti: Arc<Mutex<FederationRTI>>,
         start_time: Arc<Mutex<tag::StartTime>>,
+        stop_granted: Arc<Mutex<StopGranted>>,
     ) {
+        println!("RTI handling stop_request from federate {}.", fed_id);
+
+        // Acquire a mutex lock to ensure that this state does change while a
+        // message is in transport or being used to determine a TAG.
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let idx: usize = fed_id.into();
+            let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+
+            // Check whether we have already received a stop_tag
+            // from this federate
+            if fed.requested_stop() {
+                // Ignore this request
+                return;
+            }
+        }
+
+        // Extract the proposed stop tag for the federate
+        let proposed_stop_tag = NetUtil::extract_tag(
+            buffer[1..(1 + mem::size_of::<i64>() + mem::size_of::<u32>())]
+                .try_into()
+                .unwrap(),
+        );
+
+        // Update the maximum stop tag received from federates
+        let mut start_time_value = 0;
+        {
+            let mut locked_start_time = start_time.lock().unwrap();
+            start_time_value = locked_start_time.start_time();
+        }
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            if Tag::lf_tag_compare(&proposed_stop_tag, &locked_rti.max_stop_tag()) > 0 {
+                locked_rti.set_max_stop_tag(proposed_stop_tag.clone());
+            }
+        }
+
+        println!(
+            "RTI received from federate {} a MsgType::STOP_REQUEST message with tag ({},{}).",
+            fed_id,
+            proposed_stop_tag.time() - start_time_value,
+            proposed_stop_tag.microstep()
+        );
+
+        // If this federate has not already asked
+        // for a stop, add it to the tally.
+        Self::mark_federate_requesting_stop(
+            fed_id,
+            _f_rti.clone(),
+            stop_granted.clone(),
+            start_time_value,
+        );
+
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            if locked_rti.num_enclaves_handling_stop() == locked_rti.number_of_enclaves() {
+                // We now have information about the stop time of all
+                // federates. This is extremely unlikely, but it can occur
+                // all federates call lf_request_stop() at the same tag.
+                return;
+            }
+        }
+        // Forward the stop request to all other federates that have not
+        // also issued a stop request.
+        let mut stop_request_buffer = vec![0 as u8; MSG_TYPE_STOP_REQUEST_LENGTH];
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            Self::encode_stop_request(
+                &mut stop_request_buffer,
+                locked_rti.max_stop_tag().time(),
+                locked_rti.max_stop_tag().microstep(),
+            );
+        }
+
+        // Iterate over federates and send each the MSG_TYPE_STOP_REQUEST message
+        // if we do not have a stop_time already for them. Do not do this more than once.
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            if locked_rti.stop_in_progress() {
+                return;
+            }
+            locked_rti.set_stop_in_progress(true);
+        }
+        let mut number_of_enclaves = 0;
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            number_of_enclaves = locked_rti.number_of_enclaves();
+        }
+        for i in 0..number_of_enclaves {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            // FIXME: Handle usize properly.
+            let f: &mut Federate = &mut locked_rti.enclaves()[i as usize];
+            if f.e().id() != fed_id && f.requested_stop() == false {
+                if f.e().state() == FedState::NOT_CONNECTED {
+                    Self::mark_federate_requesting_stop(
+                        f.e().id(),
+                        _f_rti.clone(),
+                        stop_granted.clone(),
+                        start_time_value,
+                    );
+                    continue;
+                }
+                let mut stream = f.stream().as_ref().unwrap();
+                match stream.write(&stop_request_buffer) {
+                    Ok(..) => {}
+                    Err(_e) => {
+                        println!(
+                            "RTI failed to forward MsgType::STOP_REQUEST message to federate {}.",
+                            f.e().id()
+                        );
+                        // TODO: Handle errexit
+                    }
+                }
+            }
+        }
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            println!(
+                "RTI forwarded to federates MsgType::STOP_REQUEST with tag ({}, {}).",
+                locked_rti.max_stop_tag().time() - start_time_value,
+                locked_rti.max_stop_tag().microstep()
+            );
+        }
+    }
+
+    fn mark_federate_requesting_stop(
+        fed_id: u16,
+        _f_rti: Arc<Mutex<FederationRTI>>,
+        stop_granted: Arc<Mutex<StopGranted>>,
+        start_time_value: Instant,
+    ) {
+        let mut num_enclaves_handling_stop = 0;
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            num_enclaves_handling_stop = locked_rti.num_enclaves_handling_stop();
+        }
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let idx: usize = fed_id.into();
+            let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+            if !fed.requested_stop() {
+                // Assume that the federate
+                // has requested stop
+                locked_rti.set_num_enclaves_handling_stop(num_enclaves_handling_stop + 1);
+            }
+        }
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let idx: usize = fed_id.into();
+            let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+            if !fed.requested_stop() {
+                // Assume that the federate
+                // has requested stop
+                fed.set_requested_stop(true);
+            }
+        }
+        let mut number_of_enclaves = 0;
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            num_enclaves_handling_stop = locked_rti.num_enclaves_handling_stop();
+            number_of_enclaves = locked_rti.number_of_enclaves();
+        }
+        if num_enclaves_handling_stop == number_of_enclaves {
+            // We now have information about the stop time of all
+            // federates.
+            Self::_lf_rti_broadcast_stop_time_to_federates_locked(
+                _f_rti,
+                stop_granted,
+                start_time_value,
+            );
+        }
+    }
+
+    /**
+     * Once the RTI has seen proposed tags from all connected federates,
+     * it will broadcast a MSG_TYPE_STOP_GRANTED carrying the _RTI.max_stop_tag.
+     * This function also checks the most recently received NET from
+     * each federate and resets that be no greater than the _RTI.max_stop_tag.
+     *
+     * This function assumes the caller holds the _RTI.rti_mutex lock.
+     */
+    fn _lf_rti_broadcast_stop_time_to_federates_locked(
+        _f_rti: Arc<Mutex<FederationRTI>>,
+        stop_granted: Arc<Mutex<StopGranted>>,
+        start_time_value: Instant,
+    ) {
+        {
+            let mut _stop_granted = stop_granted.lock().unwrap();
+            if _stop_granted._lf_rti_stop_granted_already_sent_to_federates() == true {
+                return;
+            }
+        }
+        // Reply with a stop granted to all federates
+        let mut outgoing_buffer = vec![0 as u8; MSG_TYPE_STOP_GRANTED_LENGTH];
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            Self::encode_stop_granted(
+                &mut outgoing_buffer,
+                locked_rti.max_stop_tag().time(),
+                locked_rti.max_stop_tag().microstep(),
+            );
+        }
+
+        let mut number_of_enclaves = 0;
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            number_of_enclaves = locked_rti.number_of_enclaves();
+        }
+        // Iterate over federates and send each the message.
+        for i in 0..number_of_enclaves {
+            let mut next_event = Tag::never_tag();
+            let mut max_stop_tag = Tag::never_tag();
+            {
+                let mut locked_rti = _f_rti.lock().unwrap();
+                max_stop_tag = locked_rti.max_stop_tag();
+                // FIXME: Handle usize properly.
+                let mut fed: &Federate = &locked_rti.enclaves()[i as usize];
+                next_event = fed.e().next_event();
+                if fed.e().state() == FedState::NOT_CONNECTED {
+                    continue;
+                }
+            }
+            {
+                let mut locked_rti = _f_rti.lock().unwrap();
+                // FIXME: Handle usize properly.
+                let mut fed: &mut Federate = &mut locked_rti.enclaves()[i as usize];
+                if Tag::lf_tag_compare(&next_event, &max_stop_tag) >= 0 {
+                    // Need the next_event to be no greater than the stop tag.
+                    fed.enclave().set_next_event(max_stop_tag);
+                }
+            }
+            {
+                let mut locked_rti = _f_rti.lock().unwrap();
+                // FIXME: Handle usize properly.
+                let mut fed: &mut Federate = &mut locked_rti.enclaves()[i as usize];
+                let mut stream = fed.stream().as_ref().unwrap();
+                match stream.write(&outgoing_buffer) {
+                    Ok(..) => {}
+                    Err(_e) => {
+                        println!(
+                            "RTI failed to forward MsgType::STOP_GRANTED message to federate {}.",
+                            fed.e().id()
+                        );
+                        // TODO: Handle errexit
+                    }
+                }
+            }
+        }
+
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            println!(
+                "RTI sent to federates MsgType::STOP_GRANTED with tag ({}, {}).",
+                locked_rti.max_stop_tag().time() - start_time_value,
+                locked_rti.max_stop_tag().microstep()
+            );
+        }
+        {
+            let mut _stop_granted = stop_granted.lock().unwrap();
+            _stop_granted.set_lf_rti_stop_granted_already_sent_to_federates(true);
+        }
+    }
+
+    // FIXME: Replace this function to a macro if needed.
+    fn encode_stop_granted(outgoing_buffer: &mut Vec<u8>, time: Instant, microstep: Microstep) {
+        outgoing_buffer[0] = MsgType::STOP_GRANTED.to_byte();
+        NetUtil::encode_int64(time, outgoing_buffer, 1);
+        assert!(microstep >= 0);
+        NetUtil::encode_int32(
+            microstep as i32,
+            outgoing_buffer,
+            1 + std::mem::size_of::<Instant>(),
+        );
+    }
+
+    // FIXME: Replace this function to a macro if needed.
+    fn encode_stop_request(stop_request_buffer: &mut Vec<u8>, time: Instant, microstep: Microstep) {
+        stop_request_buffer[0] = MsgType::STOP_REQUEST.to_byte();
+        NetUtil::encode_int64(time, stop_request_buffer, 1);
+        assert!(microstep >= 0);
+        NetUtil::encode_int32(
+            microstep as i32,
+            stop_request_buffer,
+            1 + std::mem::size_of::<Instant>(),
+        );
     }
 }

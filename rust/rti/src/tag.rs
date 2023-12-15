@@ -29,7 +29,7 @@ pub type Interval = std::option::Option<i64>;
 /**
  * Microstep instant.
  */
-type Microstep = u32;
+pub type Microstep = u32;
 
 const NEVER: i64 = i64::MIN;
 
@@ -42,7 +42,7 @@ impl StartTime {
         StartTime { start_time: NEVER }
     }
 
-    pub fn start_time(&mut self) -> Instant {
+    pub fn start_time(&self) -> Instant {
         self.start_time
     }
 

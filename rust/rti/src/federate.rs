@@ -69,11 +69,15 @@ impl Federate {
         &mut self.enclave
     }
 
+    pub fn requested_stop(&self) -> bool {
+        self.requested_stop
+    }
+
     pub fn stream(&self) -> &Option<TcpStream> {
         &self.stream
     }
 
-    pub fn clock_synchronization_enabled(&mut self) -> bool {
+    pub fn clock_synchronization_enabled(&self) -> bool {
         self.clock_synchronization_enabled
     }
 

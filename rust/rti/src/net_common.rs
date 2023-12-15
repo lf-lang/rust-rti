@@ -12,7 +12,7 @@
  * This file extends enclave.h with RTI features that are specific to federations and are not
  * used by scheduling enclaves.
  */
-
+use crate::tag::{Instant, Microstep};
 /**
  * Size of the buffer used for messages sent between federates.
  * This is used by both the federates and the rti, so message lengths
@@ -28,7 +28,38 @@ pub const FED_COM_BUFFER_SIZE: usize = 256;
  */
 pub const DELAY_START: i64 = 1;
 
+/**
+ * Byte indicating a federate's reply to a MSG_TYPE_STOP_REQUEST that was sent
+ * by the RTI. The payload is a proposed stop tag that is at least as large
+ * as the one sent to the federate in a MSG_TYPE_STOP_REQUEST message.
+ *
+ * The next 8 bytes will be the timestamp.
+ * The next 4 bytes will be the microstep.
+ */
+pub const MSG_TYPE_STOP_REQUEST_LENGTH: usize =
+    1 + std::mem::size_of::<Instant>() + std::mem::size_of::<Microstep>();
+// #[macro_export]
+// macro_rules! ENCODE_STOP_GRANTED {
+//     (buffer, time, microstep) => {
+//         buffer[0] = MsgType::STOP_GRANTED;
+//         NetUtil::encode_int64(time, &buffer, 1);
+//         assert(microstep >= 0);
+//         NetUtil::encode_int32(microstep as i32, &buffer, 1 + std::mem::size_of::<Instant>());
+//     }
+// }
+
+/**
+ * Byte sent by the RTI indicating that the stop request from some federate
+ * has been granted. The payload is the tag at which all federates have
+ * agreed that they can stop.
+ * The next 8 bytes will be the time at which the federates will stop. *
+ * The next 4 bytes will be the microstep at which the federates will stop..
+ */
+pub const MSG_TYPE_STOP_GRANTED_LENGTH: usize =
+    1 + std::mem::size_of::<Instant>() + std::mem::size_of::<Microstep>();
+
 pub enum MsgType {
+    IGNORE,
     FED_IDS,
     TIMESTAMP,
     TAGGED_MESSAGE,
@@ -36,6 +67,7 @@ pub enum MsgType {
     PROVISIONAL_TAG_ADVANCE_GRANT,
     LOGICAL_TAG_COMPLETE,
     STOP_REQUEST,
+    STOP_GRANTED,
     ADDRESS_QUERY,
     P2P_SENDING_FED_ID,
     P2P_TAGGED_MESSAGE,
@@ -47,6 +79,7 @@ pub enum MsgType {
 impl MsgType {
     pub fn to_byte(&self) -> u8 {
         match self {
+            MsgType::IGNORE => 0,
             MsgType::FED_IDS => 1,
             MsgType::TIMESTAMP => 2,
             MsgType::TAGGED_MESSAGE => 5,
@@ -54,6 +87,7 @@ impl MsgType {
             MsgType::PROVISIONAL_TAG_ADVANCE_GRANT => 8,
             MsgType::LOGICAL_TAG_COMPLETE => 9,
             MsgType::STOP_REQUEST => 10,
+            MsgType::STOP_GRANTED => 12,
             MsgType::ADDRESS_QUERY => 13,
             MsgType::P2P_SENDING_FED_ID => 15,
             MsgType::P2P_TAGGED_MESSAGE => 17,
@@ -71,8 +105,9 @@ impl MsgType {
             8 => MsgType::PROVISIONAL_TAG_ADVANCE_GRANT,
             9 => MsgType::LOGICAL_TAG_COMPLETE,
             10 => MsgType::STOP_REQUEST,
+            12 => MsgType::STOP_GRANTED,
             13 => MsgType::ADDRESS_QUERY,
-            _ => todo!(),
+            _ => MsgType::IGNORE,
         }
     }
 }
