@@ -170,6 +170,10 @@ impl Enclave {
         self.upstream.push(upstream_id as i32);
     }
 
+    pub fn set_completed(&mut self, completed: Tag) {
+        self.completed = completed.clone()
+    }
+
     pub fn set_upstream_delay_at(&mut self, upstream_delay: tag::Interval, idx: usize) {
         // FIXME: Set upstream_delay exactly to the idx position
         self.upstream_delay.push(upstream_delay);
@@ -749,6 +753,83 @@ impl Enclave {
                 number_of_enclaves,
                 start_time,
                 visited,
+                sent_start_time.clone(),
+            );
+        }
+    }
+
+    pub fn logical_tag_complete(
+        _f_rti: Arc<Mutex<FederationRTI>>,
+        fed_id: u16,
+        number_of_enclaves: i32,
+        start_time: Instant,
+        sent_start_time: Arc<(Mutex<bool>, Condvar)>,
+        completed: Tag,
+    ) {
+        // FIXME: Consolidate this message with NET to get NMR (Next Message Request).
+        // Careful with handling startup and shutdown.
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let idx: usize = fed_id.into();
+            let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+            let enclave = fed.enclave();
+            enclave.set_completed(completed);
+
+            println!(
+                "RTI received from federate/enclave {} the Logical Tag Complete (LTC) ({},{}).",
+                enclave.id(),
+                enclave.completed().time() - start_time,
+                enclave.completed().microstep()
+            );
+        }
+
+        // Check downstream enclaves to see whether they should now be granted a TAG.
+        let mut num_downstream = 0;
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let idx: usize = fed_id.into();
+            let fed: &Federate = &locked_rti.enclaves()[idx];
+            let mut e = fed.e();
+            num_downstream = e.num_downstream();
+            println!(
+                "     [IN logical_tag_complete] [{}] number of downstreams = {}",
+                fed_id,
+                e.num_downstream()
+            );
+        }
+        for i in 0..num_downstream {
+            let mut e_id: u16 = 0;
+            {
+                let mut locked_rti = _f_rti.lock().unwrap();
+                let enclaves = locked_rti.enclaves();
+                let idx: usize = fed_id.into();
+                let fed: &Federate = &enclaves[idx];
+                let downstreams = fed.e().downstream();
+                // FIXME:: Replace "as u16" properly.
+                e_id = downstreams[i as usize] as u16;
+                // FIXME:: Replace "as usize" properly.
+                println!(
+                    "     [IN logical_tag_complete]  Curr downstream id = {}",
+                    e_id
+                );
+            }
+            // Notify downstream enclave if appropriate.
+            Self::notify_advance_grant_if_safe(
+                _f_rti.clone(),
+                e_id,
+                number_of_enclaves,
+                start_time,
+                sent_start_time.clone(),
+            );
+            println!("     [IN logical_tag_complete]  notify_downstream_advance_grant_if_safe");
+            let mut visited = vec![false as bool; number_of_enclaves as usize]; // Initializes to 0.
+                                                                                // Notify enclaves downstream of downstream if appropriate.
+            Self::notify_downstream_advance_grant_if_safe(
+                _f_rti.clone(),
+                e_id,
+                number_of_enclaves,
+                start_time,
+                &mut visited,
                 sent_start_time.clone(),
             );
         }
