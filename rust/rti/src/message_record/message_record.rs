@@ -12,6 +12,7 @@
  */
 use priority_queue::PriorityQueue;
 
+use crate::message_record::rti_pqueue_support::InTransitMessageRecord;
 use crate::tag::{Instant, Tag};
 
 /**
@@ -43,6 +44,19 @@ impl InTransitMessageRecordQueue {
 pub struct MessageRecord {}
 
 impl MessageRecord {
+    /**
+     * @brief Add a record of the in-transit message.
+     *
+     * @param queue The queue to add to.
+     * @param tag The tag of the in-transit message.
+     * @return 0 on success.
+     */
+    pub fn add_in_transit_message_record(queue: &mut InTransitMessageRecordQueue, tag: Tag) {
+        let mut main_queue = queue.main_queue();
+        let in_transit_record = InTransitMessageRecord::new(tag, 0);
+        main_queue.push(in_transit_record.tag(), in_transit_record.pos());
+    }
+
     /**
      * @brief Clean the record of in-transit messages up to and including `tag`.
      *

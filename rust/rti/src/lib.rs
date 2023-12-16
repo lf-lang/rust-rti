@@ -12,6 +12,7 @@ mod federate;
 mod federation_rti;
 mod message_record {
     pub mod message_record;
+    pub mod rti_pqueue_support;
 }
 mod net_common;
 mod net_util;

@@ -698,7 +698,7 @@ impl Enclave {
         }
     }
 
-    fn notify_downstream_advance_grant_if_safe(
+    pub fn notify_downstream_advance_grant_if_safe(
         _f_rti: Arc<Mutex<FederationRTI>>,
         fed_id: u16,
         number_of_enclaves: i32,

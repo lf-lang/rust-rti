@@ -40,6 +40,51 @@ impl NetUtil {
         buffer[index + 3] = ((data & (0xff000000u32 as i32)) >> 24) as u8;
     }
 
+    pub fn extract_timed_header(
+        buffer: &[u8],
+        port_id: &mut u16,
+        federate_id: &mut u16,
+        length: &mut i32,
+        tag: &mut Tag,
+    ) {
+        Self::extract_header(buffer, port_id, federate_id, length);
+
+        let start_idx =
+            std::mem::size_of::<u16>() + std::mem::size_of::<u16>() + std::mem::size_of::<i32>();
+        let temporary_tag = Self::extract_tag(&buffer[start_idx..]);
+        tag.set_time(temporary_tag.time());
+        tag.set_microstep(temporary_tag.microstep());
+    }
+
+    fn extract_header(buffer: &[u8], port_id: &mut u16, federate_id: &mut u16, length: &mut i32) {
+        // The first two bytes are the ID of the destination reactor.
+        let u16_size = std::mem::size_of::<u16>();
+        // FIXME: Handle unwrap properly.
+        *port_id = u16::from_le_bytes(buffer[0..u16_size].try_into().unwrap());
+
+        // The next two bytes are the ID of the destination federate.
+        // FIXME: Handle unwrap properly.
+        *federate_id =
+            u16::from_le_bytes(buffer[u16_size..(u16_size + u16_size)].try_into().unwrap());
+
+        // The next four bytes are the message length.
+        // FIXME: Handle unwrap properly.
+        let local_length_signed = i32::from_le_bytes(
+            buffer[(u16_size + u16_size)..(u16_size + u16_size + 4)]
+                .try_into()
+                .unwrap(),
+        );
+        if local_length_signed < 0 {
+            println!(
+                "Received an invalid message length ({}) from federate {}.",
+                local_length_signed, *federate_id
+            );
+            // FIXME: Replace return to exit.
+            return;
+        }
+        *length = local_length_signed;
+    }
+
     pub fn extract_tag(buffer: &[u8]) -> Tag {
         // for x in buffer {
         //     print!("{:02X?} ", x);

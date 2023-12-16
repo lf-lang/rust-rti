@@ -62,6 +62,7 @@ pub enum MsgType {
     IGNORE,
     FED_IDS,
     TIMESTAMP,
+    RESIGN,
     TAGGED_MESSAGE,
     NEXT_EVENT_TAG,
     PROVISIONAL_TAG_ADVANCE_GRANT,
@@ -82,6 +83,7 @@ impl MsgType {
             MsgType::IGNORE => 0,
             MsgType::FED_IDS => 1,
             MsgType::TIMESTAMP => 2,
+            MsgType::RESIGN => 4,
             MsgType::TAGGED_MESSAGE => 5,
             MsgType::NEXT_EVENT_TAG => 6,
             MsgType::PROVISIONAL_TAG_ADVANCE_GRANT => 8,
@@ -100,6 +102,7 @@ impl MsgType {
     pub fn to_msg_type(val: u8) -> MsgType {
         match val {
             2 => MsgType::TIMESTAMP,
+            4 => MsgType::RESIGN,
             5 => MsgType::TAGGED_MESSAGE,
             6 => MsgType::NEXT_EVENT_TAG,
             8 => MsgType::PROVISIONAL_TAG_ADVANCE_GRANT,

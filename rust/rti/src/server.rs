@@ -233,9 +233,20 @@ impl Server {
                                         MsgType::TAGGED_MESSAGE => Self::handle_timed_message(
                                             &buffer,
                                             fed_id.try_into().unwrap(),
+                                            &mut stream,
                                             cloned_rti.clone(),
                                             cloned_start_time.clone(),
+                                            cloned_sent_start_time.clone(),
                                         ),
+                                        MsgType::RESIGN => {
+                                            Self::handle_federate_resign(
+                                                fed_id.try_into().unwrap(),
+                                                cloned_rti.clone(),
+                                                cloned_start_time.clone(),
+                                                cloned_sent_start_time.clone(),
+                                            );
+                                            return;
+                                        }
                                         MsgType::NEXT_EVENT_TAG => Self::handle_next_event_tag(
                                             &buffer,
                                             fed_id.try_into().unwrap(),
@@ -781,10 +792,224 @@ impl Server {
     fn handle_timed_message(
         buffer: &Vec<u8>,
         fed_id: u16,
-        // stream: &mut TcpStream,
+        stream: &mut TcpStream,
         _f_rti: Arc<Mutex<FederationRTI>>,
         start_time: Arc<Mutex<tag::StartTime>>,
+        sent_start_time: Arc<(Mutex<bool>, Condvar)>,
     ) {
+        let header_size = 1
+            + std::mem::size_of::<u16>()
+            + std::mem::size_of::<u16>()
+            + std::mem::size_of::<i32>()
+            + std::mem::size_of::<i64>()
+            + std::mem::size_of::<u32>();
+        // Read the header, minus the first byte which has already been read.
+        let mut reactor_port_id: u16 = 0;
+        let mut federate_id: u16 = 0;
+        let mut length: i32 = 0;
+        let mut intended_tag = Tag::never_tag();
+        // Extract information from the header.
+        NetUtil::extract_timed_header(
+            &buffer[1..],
+            &mut reactor_port_id,
+            &mut federate_id,
+            &mut length,
+            &mut intended_tag,
+        );
+
+        // FIXME: Handle "as i32" properly.
+        let total_bytes_to_read = length + header_size as i32;
+        let mut bytes_to_read = length;
+
+        if FED_COM_BUFFER_SIZE < header_size + 1 {
+            println!(
+                "Buffer size ({}) is not large enough to read the header plus one byte.",
+                FED_COM_BUFFER_SIZE
+            );
+            // FIXME: Change return to exit.
+            return;
+        }
+
+        // Cut up the payload in chunks.
+        // FIXME: Handle unwrap properly.
+        let size_diff = (FED_COM_BUFFER_SIZE - header_size).try_into().unwrap();
+        if bytes_to_read > size_diff {
+            bytes_to_read = size_diff
+        }
+
+        let mut start_time_value = 0;
+        {
+            let mut locked_start_time = start_time.lock().unwrap();
+            start_time_value = locked_start_time.start_time();
+        }
+        println!("RTI received message from federate {} for federate {} port {} with intended tag ({}, {}). Forwarding.",
+                fed_id, federate_id, reactor_port_id,
+                intended_tag.time() - start_time_value, intended_tag.microstep());
+
+        // FIXME: Handle "as i32" properly.
+        let bytes_read = bytes_to_read + header_size as i32;
+        // Following only works for string messages.
+        // println!("Message received by RTI: {}.", buffer + header_size);
+
+        let mut completed = Tag::never_tag();
+        {
+            // Need to acquire the mutex lock to ensure that the thread handling
+            // messages coming from the socket connected to the destination does not
+            // issue a TAG before this message has been forwarded.
+            let mut locked_rti = _f_rti.lock().unwrap();
+
+            // If the destination federate is no longer connected, issue a warning
+            // and return.
+            let idx: usize = federate_id.into();
+            let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+            let enclave = fed.enclave();
+            if enclave.state() == FedState::NOT_CONNECTED {
+                println!(
+                    "RTI: Destination federate {} is no longer connected. Dropping message.",
+                    federate_id
+                );
+                println!("Fed status: next_event ({}, {}), completed ({}, {}), last_granted ({}, {}), last_provisionally_granted ({}, {}).",
+                        enclave.next_event().time() - start_time_value,
+                        enclave.next_event().microstep(),
+                        enclave.completed().time() - start_time_value,
+                        enclave.completed().microstep(),
+                        enclave.last_granted().time() - start_time_value,
+                        enclave.last_granted().microstep(),
+                        enclave.last_provisionally_granted().time() - start_time_value,
+                        enclave.last_provisionally_granted().microstep()
+                );
+                return;
+            }
+
+            completed = enclave.completed();
+        }
+
+        println!(
+            "RTI forwarding message to port {} of federate {} of length {}.",
+            reactor_port_id, federate_id, length
+        );
+
+        // Record this in-transit message in federate's in-transit message queue.
+        if Tag::lf_tag_compare(&completed, &intended_tag) < 0 {
+            // Add a record of this message to the list of in-transit messages to this federate.
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let idx: usize = federate_id.into();
+            let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+            MessageRecord::add_in_transit_message_record(
+                fed.in_transit_message_tags(),
+                intended_tag.clone(),
+            );
+            println!(
+                "RTI: Adding a message with tag ({}, {}) to the list of in-transit messages for federate {}.",
+                intended_tag.time() - start_time_value,
+                intended_tag.microstep(),
+                federate_id
+            );
+        } else {
+            println!(
+                "RTI: Federate {} has already completed tag ({}, {}), but there is an in-transit message with tag ({}, {}) from federate {}. This is going to cause an STP violation under centralized coordination.",
+                federate_id,
+                completed.time() - start_time_value,
+                completed.microstep(),
+                intended_tag.time() - start_time_value,
+                intended_tag.microstep(),
+                fed_id
+            );
+            // FIXME: Drop the federate?
+        }
+
+        // Need to make sure that the destination federate's thread has already
+        // sent the starting MsgType::TIMESTAMP message.
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let idx: usize = federate_id.into();
+            let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+            while fed.enclave().state() == FedState::PENDING {
+                // Need to wait here.
+                let (lock, condvar) = &*sent_start_time;
+                let mut notified = lock.lock().unwrap();
+                while !*notified {
+                    println!("[{}] [PROVISIONAL] cond wait", fed_id);
+                    notified = condvar.wait(notified).unwrap();
+                }
+            }
+
+            let mut destination_stream = fed.stream().as_ref().unwrap();
+            match destination_stream.write(&buffer) {
+                Ok(..) => {}
+                Err(_e) => {
+                    println!("RTI failed to forward message to federate {}.", federate_id);
+                    // TODO: Handle errexit
+                }
+            }
+        }
+
+        // The message length may be longer than the buffer,
+        // in which case we have to handle it in chunks.
+        let mut total_bytes_read = bytes_read;
+        while total_bytes_read < total_bytes_to_read {
+            println!("Forwarding message in chunks.");
+            bytes_to_read = total_bytes_to_read - total_bytes_read;
+            // FIXME: Handle "as i32" properly.
+            let fed_com_buffer_size = FED_COM_BUFFER_SIZE as i32;
+            if bytes_to_read > fed_com_buffer_size {
+                bytes_to_read = fed_com_buffer_size;
+            }
+            // FIXME: Handle unwrap properly.
+            let mut read_buffer = vec![0 as u8; bytes_to_read.try_into().unwrap()];
+            while match stream.read(&mut read_buffer) {
+                Ok(bytes_read) => {
+                    {
+                        if bytes_read < 1 {
+                            // Socket is closed
+                            println!(
+                                "RTI: Socket to federate {} is closed. Exiting the thread.",
+                                fed_id
+                            );
+                            // TODO: Enable the following line.
+                            // fed.enclave()
+                            //     .set_state(FedState::NOT_CONNECTED);
+                            // FIXME: We need better error handling here, but do not stop execution here.
+                            ()
+                        }
+                        println!("RTI failed to read message chunks.");
+                        // FIXME: Replace return to exit
+                        return;
+                    }
+
+                    false
+                }
+                Err(_) => false,
+            } {}
+            total_bytes_read += bytes_to_read;
+
+            // FIXME: a mutex needs to be held for this so that other threads
+            // do not write to destination_socket and cause interleaving. However,
+            // holding the rti_mutex might be very expensive. Instead, each outgoing
+            // socket should probably have its own mutex.
+            {
+                let mut locked_rti = _f_rti.lock().unwrap();
+                let idx: usize = federate_id.into();
+                let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+                let mut destination_stream = fed.stream().as_ref().unwrap();
+                match destination_stream.write(&read_buffer) {
+                    Ok(..) => {}
+                    Err(_e) => {
+                        println!("RTI failed to send message chunks.");
+                        // FIXME: Replace return to exit
+                        return;
+                    }
+                }
+            }
+        }
+
+        Self::update_federate_next_event_tag_locked(
+            _f_rti,
+            federate_id,
+            intended_tag,
+            start_time_value,
+            sent_start_time,
+        );
     }
 
     fn handle_next_event_tag(
@@ -1202,6 +1427,72 @@ impl Server {
             microstep as i32,
             stop_request_buffer,
             1 + std::mem::size_of::<Instant>(),
+        );
+    }
+
+    fn handle_federate_resign(
+        fed_id: u16,
+        _f_rti: Arc<Mutex<FederationRTI>>,
+        start_time: Arc<Mutex<tag::StartTime>>,
+        sent_start_time: Arc<(Mutex<bool>, Condvar)>,
+    ) {
+        // Nothing more to do. Close the socket and exit.
+
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let idx: usize = fed_id.into();
+            let my_fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+            my_fed.enclave().set_state(FedState::NOT_CONNECTED);
+        }
+
+        // Indicate that there will no further events from this federate.
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let idx: usize = fed_id.into();
+            let my_fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+            my_fed.enclave().set_next_event(Tag::forever_tag());
+        }
+
+        // According to this: https://stackoverflow.com/questions/4160347/close-vs-shutdown-socket,
+        // the close should happen when receiving a 0 length message from the other end.
+        // Here, we just signal the other side that no further writes to the socket are
+        // forthcoming, which should result in the other end getting a zero-length reception.
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let idx: usize = fed_id.into();
+            let my_fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+            my_fed
+                .stream()
+                .as_ref()
+                .unwrap()
+                .shutdown(Shutdown::Both)
+                .unwrap();
+
+            println!("Federate {} has resigned.", fed_id);
+        }
+
+        // Check downstream federates to see whether they should now be granted a TAG.
+        // To handle cycles, need to create a boolean array to keep
+        // track of which upstream federates have been visited.
+        let mut number_of_enclaves = 0;
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            number_of_enclaves = locked_rti.number_of_enclaves();
+        }
+        let mut start_time_value = 0;
+        {
+            let mut locked_start_time = start_time.lock().unwrap();
+            start_time_value = locked_start_time.start_time();
+        }
+        // FIXME: Handle unwrap properly.
+        let mut visited = vec![false as bool; number_of_enclaves.try_into().unwrap()]; // Initializes to 0.
+        Enclave::notify_downstream_advance_grant_if_safe(
+            _f_rti.clone(),
+            fed_id,
+            number_of_enclaves,
+            start_time_value,
+            &mut visited,
+            sent_start_time,
         );
     }
 }
