@@ -243,13 +243,16 @@ impl Server {
                                             cloned_start_time.clone(),
                                             cloned_sent_start_time.clone(),
                                         ),
-                                        // MsgType::LOGICAL_TAG_COMPLETE => Self::handle_logical_tag_complete(
-                                        //     &buffer,
-                                        //     fed_id.try_into().unwrap(),
-                                        //     cloned_rti.clone(),
-                                        //     cloned_start_time.clone(),
-                                        //     cloned_sent_start_time.clone(),
-                                        // ),
+                                        MsgType::LOGICAL_TAG_COMPLETE => {
+                                            Self::handle_logical_tag_complete(
+                                                &buffer,
+                                                fed_id.try_into().unwrap(),
+                                                cloned_rti.clone(),
+                                                cloned_start_time.clone(),
+                                                cloned_stop_granted.clone(),
+                                                cloned_sent_start_time.clone(),
+                                            )
+                                        }
                                         MsgType::STOP_REQUEST => Self::handle_stop_request_message(
                                             &buffer,
                                             fed_id.try_into().unwrap(),
@@ -816,11 +819,6 @@ impl Server {
             let mut locked_start_time = start_time.lock().unwrap();
             start_time_value = locked_start_time.start_time();
         }
-        // println!(
-        //     "intended_tag.time = ({}),  locked_start_time = ({})",
-        //     intended_tag.time(),
-        //     start_time_value
-        // );
         println!(
             "RTI received from federate {} the Next Event Tag (NET) ({},{})",
             enclave_id,
@@ -863,6 +861,53 @@ impl Server {
             start_time,
             sent_start_time,
         );
+    }
+
+    fn handle_logical_tag_complete(
+        buffer: &Vec<u8>,
+        fed_id: u16,
+        // stream: &mut TcpStream,
+        _f_rti: Arc<Mutex<FederationRTI>>,
+        start_time: Arc<Mutex<tag::StartTime>>,
+        stop_granted: Arc<Mutex<StopGranted>>,
+        sent_start_time: Arc<(Mutex<bool>, Condvar)>,
+    ) {
+        let completed = NetUtil::extract_tag(
+            buffer[1..(1 + mem::size_of::<i64>() + mem::size_of::<u32>())]
+                .try_into()
+                .unwrap(),
+        );
+        let mut number_of_enclaves = 0;
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            number_of_enclaves = locked_rti.number_of_enclaves();
+        }
+        let mut start_time_value = 0;
+        {
+            let mut locked_start_time = start_time.lock().unwrap();
+            start_time_value = locked_start_time.start_time();
+        }
+        Enclave::logical_tag_complete(
+            _f_rti.clone(),
+            fed_id,
+            number_of_enclaves,
+            start_time_value,
+            sent_start_time,
+            completed.clone(),
+        );
+
+        // See if we can remove any of the recorded in-transit messages for this.
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let idx: usize = fed_id.into();
+            let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+            let in_transit_message_tags = fed.in_transit_message_tags();
+            MessageRecord::clean_in_transit_message_record_up_to_tag(
+                in_transit_message_tags,
+                completed,
+                start_time_value,
+            );
+        }
     }
 
     fn handle_stop_request_message(
