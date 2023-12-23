@@ -275,6 +275,15 @@ impl Server {
                                         // Need to also look at
                                         // notify_advance_grant_if_safe()
                                         // and notify_downstream_advance_grant_if_safe()
+                                        MsgType::STOP_REQUEST_REPLY => {
+                                            Self::handle_stop_request_reply(
+                                                &buffer,
+                                                fed_id.try_into().unwrap(),
+                                                cloned_rti.clone(),
+                                                cloned_start_time.clone(),
+                                                cloned_stop_granted.clone(),
+                                            )
+                                        }
                                         _ => {
                                             let mut locked_rti = cloned_rti.lock().unwrap();
                                             let fed: &mut Federate =
@@ -1427,6 +1436,50 @@ impl Server {
             microstep as i32,
             stop_request_buffer,
             1 + std::mem::size_of::<Instant>(),
+        );
+    }
+
+    fn handle_stop_request_reply(
+        buffer: &Vec<u8>,
+        fed_id: u16,
+        _f_rti: Arc<Mutex<FederationRTI>>,
+        start_time: Arc<Mutex<tag::StartTime>>,
+        stop_granted: Arc<Mutex<StopGranted>>,
+    ) {
+        let federate_stop_tag = NetUtil::extract_tag(
+            buffer[1..(1 + MSG_TYPE_STOP_REQUEST_REPLY_LENGTH)]
+                .try_into()
+                .unwrap(),
+        );
+
+        let mut start_time_value = 0;
+        {
+            let mut locked_start_time = start_time.lock().unwrap();
+            start_time_value = locked_start_time.start_time();
+        }
+        println!(
+            "RTI received from federate {} STOP reply tag ({}, {}).",
+            fed_id,
+            federate_stop_tag.time() - start_time_value,
+            federate_stop_tag.microstep()
+        );
+
+        // Acquire the mutex lock so that we can change the state of the RTI
+        // If the federate has not requested stop before, count the reply
+        let mut max_stop_tag = Tag::never_tag();
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            max_stop_tag = locked_rti.max_stop_tag();
+        }
+        if Tag::lf_tag_compare(&federate_stop_tag, &max_stop_tag) > 0 {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            locked_rti.set_max_stop_tag(federate_stop_tag);
+        }
+        Self::mark_federate_requesting_stop(
+            fed_id,
+            _f_rti.clone(),
+            stop_granted.clone(),
+            start_time_value,
         );
     }
 

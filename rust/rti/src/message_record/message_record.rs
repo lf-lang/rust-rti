@@ -69,6 +69,7 @@ impl MessageRecord {
         start_time: Instant,
     ) {
         let mut main_queue = queue.main_queue();
+        let mut temp_queue = PriorityQueue::with_capacity(10);
         while !main_queue.is_empty() {
             // Queue is not empty
             match main_queue.peek() {
@@ -98,13 +99,14 @@ impl MessageRecord {
                         } else {
                             // Add it to the transfer queue
                             match main_queue.pop() {
-                                Some(head) => {}
+                                Some(head) => {
+                                    temp_queue.push(head.0, head.1);
+                                }
                                 None => {
                                     println!("Failed to pop an item from a main queue.");
                                     return;
                                 }
                             }
-                            // TODO: transfer_queue.push(head.0, head.1);
                         }
                     }
                 }
@@ -114,7 +116,11 @@ impl MessageRecord {
             }
         }
         // Empty the transfer queue (which holds messages with equal time but larger microstep) into the main queue.
-        // pqueue_empty_into(&queue->main_queue, &queue->transfer_queue);
+        main_queue.clear();
+        let mut transfer_queue = queue.transfer_queue();
+        for node in &temp_queue {
+            transfer_queue.push(node.0.clone(), *node.1);
+        }
     }
 
     /**
@@ -130,7 +136,7 @@ impl MessageRecord {
         let mut minimum_tag = Tag::forever_tag();
 
         let mut main_queue = queue.main_queue();
-        // TODO: let mut transfer_queue = queue.transfer_queue();
+        let mut temp_queue = PriorityQueue::with_capacity(10);
         while !main_queue.is_empty() {
             match main_queue.peek() {
                 Some(mut head_of_in_transit_messages) => {
@@ -151,7 +157,7 @@ impl MessageRecord {
             // Add the head to the transfer queue.
             match main_queue.pop() {
                 Some(head) => {
-                    // TODO: transfer_queue.push(head.0, head.1);
+                    temp_queue.push(head.0, head.1);
                 }
                 None => {
                     println!("Failed to pop an item from a main queue.");
@@ -174,6 +180,12 @@ impl MessageRecord {
                 }
             }
         }
+
+        let mut transfer_queue = queue.transfer_queue();
+        for node in &temp_queue {
+            transfer_queue.push(node.0.clone(), *node.1);
+        }
+
         minimum_tag
     }
 }
