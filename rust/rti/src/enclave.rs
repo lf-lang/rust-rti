@@ -153,6 +153,10 @@ impl Enclave {
         self.num_downstream
     }
 
+    pub fn set_last_granted(&mut self, tag: Tag) {
+        self.last_granted = tag;
+    }
+
     pub fn set_last_provisionally_granted(&mut self, tag: Tag) {
         self.last_provisionally_granted = tag;
     }
@@ -539,7 +543,95 @@ impl Enclave {
         result
     }
 
-    fn notify_tag_advance_grant() {}
+    fn notify_tag_advance_grant(
+        _f_rti: Arc<Mutex<FederationRTI>>,
+        fed_id: u16,
+        tag: Tag,
+        start_time: Instant,
+        sent_start_time: Arc<(Mutex<bool>, Condvar)>,
+    ) {
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let enclaves = locked_rti.enclaves();
+            let idx: usize = fed_id.into();
+            let fed: &Federate = &enclaves[idx];
+            let mut e = fed.e();
+            if e.state() == FedState::NOT_CONNECTED
+                || Tag::lf_tag_compare(&tag, &e.last_granted()) <= 0
+                || Tag::lf_tag_compare(&tag, &e.last_provisionally_granted()) <= 0
+            {
+                return;
+            }
+            // Need to make sure that the destination federate's thread has already
+            // sent the starting MSG_TYPE_TIMESTAMP message.
+            while e.state() == FedState::PENDING {
+                // Need to wait here.
+                let (lock, condvar) = &*sent_start_time;
+                let mut notified = lock.lock().unwrap();
+                while !*notified {
+                    println!("[{}] [PROVISIONAL] cond wait", fed_id);
+                    notified = condvar.wait(notified).unwrap();
+                }
+            }
+        }
+        let message_length = 1 + mem::size_of::<i64>() + mem::size_of::<u32>();
+        // FIXME:: Replace "as usize" properly.
+        let mut buffer = vec![0 as u8; message_length as usize];
+        buffer[0] = MsgType::TAG_ADVANCE_GRANT.to_byte();
+        NetUtil::encode_int64(tag.time(), &mut buffer, 1);
+        NetUtil::encode_int32(
+            tag.microstep().try_into().unwrap(),
+            &mut buffer,
+            1 + mem::size_of::<i64>(),
+        );
+
+        // This function is called in notify_advance_grant_if_safe(), which is a long
+        // function. During this call, the socket might close, causing the following write_to_socket
+        // to fail. Consider a failure here a soft failure and update the federate's status.
+        let mut error_occurred = false;
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let mut enclaves = locked_rti.enclaves();
+            // FIXME:: Replace "as usize" properly.
+            let fed: &Federate = &enclaves[fed_id as usize];
+            println!("  [TAG] FED_ID = {}", fed_id);
+            let mut e = fed.e();
+            let mut stream = fed.stream().as_ref().unwrap();
+            match stream.write(&buffer) {
+                Ok(bytes_written) => {
+                    if bytes_written < message_length {
+                        println!(
+                            "RTI failed to send tag advance grant to federate {}.",
+                            e.id()
+                        );
+                    }
+                }
+                Err(_err) => {
+                    error_occurred = true;
+                }
+            }
+        }
+        {
+            println!("    [TAG] [{}] Finish writing a message.", fed_id);
+            let mut locked_rti = _f_rti.lock().unwrap();
+            // FIXME:: Replace "as usize" properly.
+            let mut_fed: &mut Federate = &mut locked_rti.enclaves()[fed_id as usize];
+            let mut enclave = mut_fed.enclave();
+            if error_occurred {
+                enclave.set_state(FedState::NOT_CONNECTED);
+                // FIXME: We need better error handling, but don't stop other execution here.
+            } else {
+                enclave.set_last_granted(tag.clone());
+                println!(
+                    "     [fed_id: {}] RTI sent to federate {} the Tag Advance Grant (TAG) ({},{}).",
+                    fed_id,
+                    enclave.id(),
+                    tag.time() - start_time,
+                    tag.microstep()
+                );
+            }
+        }
+    }
 
     fn notify_provisional_tag_advance_grant(
         _f_rti: Arc<Mutex<FederationRTI>>,
@@ -734,7 +826,6 @@ impl Enclave {
                 e_id = downstreams[i as usize] as u16;
                 // FIXME:: Replace "as usize" properly.
                 println!("    Curr downstream id = {}", e_id);
-                let mut e = enclaves[e_id as usize].e();
                 if visited[e_id as usize] {
                     continue;
                 }

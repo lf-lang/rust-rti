@@ -157,7 +157,7 @@ impl FederationRTI {
         self.max_stop_tag.clone()
     }
 
-    pub fn number_of_enclaves(&mut self) -> i32 {
+    pub fn number_of_enclaves(&self) -> i32 {
         self.number_of_enclaves
     }
 
@@ -165,27 +165,27 @@ impl FederationRTI {
         self.num_enclaves_handling_stop
     }
 
-    pub fn max_start_time(&mut self) -> i64 {
+    pub fn max_start_time(&self) -> i64 {
         self.max_start_time
     }
 
-    pub fn num_feds_proposed_start(&mut self) -> i32 {
+    pub fn num_feds_proposed_start(&self) -> i32 {
         self.num_feds_proposed_start
     }
 
-    pub fn federation_id(&mut self) -> String {
+    pub fn federation_id(&self) -> String {
         self.federation_id.clone()
     }
 
-    pub fn user_specified_port(&mut self) -> u16 {
+    pub fn user_specified_port(&self) -> u16 {
         self.user_specified_port
     }
 
-    pub fn final_port_UDP(&mut self) -> u16 {
+    pub fn final_port_UDP(&self) -> u16 {
         self.final_port_UDP
     }
 
-    pub fn clock_sync_global_status(&mut self) -> ClockSyncStat {
+    pub fn clock_sync_global_status(&self) -> ClockSyncStat {
         self.clock_sync_global_status.clone()
     }
 
