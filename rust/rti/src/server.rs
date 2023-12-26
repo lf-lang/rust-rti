@@ -32,15 +32,6 @@ enum SocketType {
     UDP,
 }
 
-// impl SocketType {
-//     pub fn to_int(&self) -> i32 {
-//         match self {
-//             SocketType::TCP => 0,
-//             SocketType::UDP => 1,
-//         }
-//     }
-// }
-
 struct StopGranted {
     _lf_rti_stop_granted_already_sent_to_federates: bool,
 }
@@ -170,6 +161,7 @@ impl Server {
                                 // This closure is the implementation of federate_thread_TCP in rti_lib.c
                                 {
                                     let mut locked_rti = cloned_rti.lock().unwrap();
+                                    // FIXME: Handle "as usize" properly.
                                     let fed: &mut Federate =
                                         &mut locked_rti.enclaves()[fed_id as usize];
                                     fed.set_stream(stream.try_clone().unwrap());
@@ -178,12 +170,10 @@ impl Server {
                                 // Buffer for incoming messages.
                                 // This does not constrain the message size because messages
                                 // are forwarded piece by piece.
-                                // let mut buffer = vec![0 as u8; FED_COM_BUFFER_SIZE];
                                 let mut buffer = vec![0 as u8; 1];
 
                                 // Listen for messages from the federate.
                                 while true {
-                                    // Read no more than one byte to get the message type.
                                     {
                                         let mut locked_rti = cloned_rti.lock().unwrap();
                                         let mut enclaves = locked_rti.enclaves();
@@ -195,30 +185,29 @@ impl Server {
                                             break;
                                         }
                                     }
-                                    while match stream.read(&mut buffer) {
-                                        Ok(bytes_read) => {
-                                            {
-                                                if bytes_read < 1 {
-                                                    // Socket is closed
-                                                    println!("RTI: Socket to federate {} is closed. Exiting the thread.",
-                                                        fed_id);
-                                                    // TODO: Enable the following line.
-                                                    // fed.enclave()
-                                                    //     .set_state(FedState::NOT_CONNECTED);
-                                                    // FIXME: We need better error handling here, but do not stop execution here.
-                                                    ()
-                                                }
-                                                println!(
-                                                    "RTI: Received message type {} from federate {}.",
-                                                    buffer[0],
-                                                    fed_id
-                                                );
-                                            }
-
-                                            false
-                                        }
-                                        Err(_) => false,
-                                    } {}
+                                    // Read no more than one byte to get the message type.
+                                    // FIXME: Handle unwrap properly.
+                                    let bytes_read = NetUtil::read_from_stream(
+                                        &mut stream,
+                                        &mut buffer,
+                                        fed_id.try_into().unwrap(),
+                                    );
+                                    if bytes_read < 1 {
+                                        // Socket is closed
+                                        println!("RTI: Socket to federate {} is closed. Exiting the thread.",
+                                            fed_id);
+                                        let mut locked_rti = cloned_rti.lock().unwrap();
+                                        let mut enclaves = locked_rti.enclaves();
+                                        // FIXME:: Replace "as usize" properly.
+                                        let fed: &mut Federate = &mut enclaves[fed_id as usize];
+                                        fed.enclave().set_state(FedState::NOT_CONNECTED);
+                                        // FIXME: We need better error handling here, but do not stop execution here.
+                                        break;
+                                    }
+                                    println!(
+                                        "RTI: Received message type {} from federate {}.",
+                                        buffer[0], fed_id
+                                    );
                                     match MsgType::to_msg_type(buffer[0]) {
                                         MsgType::TIMESTAMP => Self::handle_timestamp(
                                             // &buffer,
@@ -227,14 +216,6 @@ impl Server {
                                             cloned_rti.clone(),
                                             cloned_start_time.clone(),
                                             cloned_received_start_times.clone(),
-                                            cloned_sent_start_time.clone(),
-                                        ),
-                                        MsgType::TAGGED_MESSAGE => Self::handle_timed_message(
-                                            buffer[0],
-                                            fed_id.try_into().unwrap(),
-                                            &mut stream,
-                                            cloned_rti.clone(),
-                                            cloned_start_time.clone(),
                                             cloned_sent_start_time.clone(),
                                         ),
                                         MsgType::RESIGN => {
@@ -246,6 +227,14 @@ impl Server {
                                             );
                                             return;
                                         }
+                                        MsgType::TAGGED_MESSAGE => Self::handle_timed_message(
+                                            buffer[0],
+                                            fed_id.try_into().unwrap(),
+                                            &mut stream,
+                                            cloned_rti.clone(),
+                                            cloned_start_time.clone(),
+                                            cloned_sent_start_time.clone(),
+                                        ),
                                         MsgType::NEXT_EVENT_TAG => Self::handle_next_event_tag(
                                             &buffer,
                                             fed_id.try_into().unwrap(),
@@ -353,166 +342,141 @@ impl Server {
         // Buffer for message ID, federate ID, and federation ID length.
         let length = 1 + mem::size_of::<u16>() + 1;
         let mut first_buffer = vec![0 as u8; length];
+        // Initialize to an invalid value.
         let mut fed_id = u16::MAX;
         let cloned_rti = Arc::clone(&_f_rti);
-        while match stream.read(&mut first_buffer) {
-            Ok(size) => {
-                // echo everything!
-                // TODO: Drop the following loop for debugging
-                print!("Message Size: {}\n", size);
-                for x in &first_buffer {
-                    print!("{:02X?} ", x);
-                }
-                println!("");
+        // Read bytes from the socket. We need 4 bytes.
+        // FIXME: This should not exit with error but rather should just reject the connection.
+        NetUtil::read_from_stream_errexit(stream, &mut first_buffer, 0, "");
 
-                // First byte received is the message type.
-                if first_buffer[0] != MsgType::FED_IDS.to_byte() {
-                    if first_buffer[0] == MsgType::P2P_SENDING_FED_ID.to_byte()
-                        || first_buffer[0] == MsgType::P2P_TAGGED_MESSAGE.to_byte()
-                    {
-                        // The federate is trying to connect to a peer, not to the RTI.
-                        // It has connected to the RTI instead.
-                        // FIXME: This should not happen, but apparently has been observed.
-                        // It should not happen because the peers get the port and IP address
-                        // of the peer they want to connect to from the RTI.
-                        // If the connection is a peer-to-peer connection between two
-                        // federates, reject the connection with the WRONG_SERVER error.
-                        Self::send_reject(ErrType::WRONG_SERVER);
-                    } else {
-                        Self::send_reject(ErrType::UNEXPECTED_MESSAGE);
-                    }
+        // First byte received is the message type.
+        if first_buffer[0] != MsgType::FED_IDS.to_byte() {
+            if first_buffer[0] == MsgType::P2P_SENDING_FED_ID.to_byte()
+                || first_buffer[0] == MsgType::P2P_TAGGED_MESSAGE.to_byte()
+            {
+                // The federate is trying to connect to a peer, not to the RTI.
+                // It has connected to the RTI instead.
+                // FIXME: This should not happen, but apparently has been observed.
+                // It should not happen because the peers get the port and IP address
+                // of the peer they want to connect to from the RTI.
+                // If the connection is a peer-to-peer connection between two
+                // federates, reject the connection with the WRONG_SERVER error.
+                Self::send_reject(ErrType::WRONG_SERVER);
+            } else {
+                Self::send_reject(ErrType::UNEXPECTED_MESSAGE);
+            }
+            println!(
+                "RTI expected a MSG_TYPE_FED_IDS message. Got {} (see net_common.h).",
+                first_buffer[0]
+            );
+            return -1;
+        } else {
+            // Received federate ID.
+            // FIXME:: Change from_le_bytes properly.
+            let u16_size = mem::size_of::<u16>();
+            fed_id = u16::from_le_bytes(first_buffer[1..(1 + u16_size)].try_into().unwrap());
+            println!("RTI received federate ID: {}.", fed_id);
+
+            // Read the federation ID.  First read the length, which is one byte.
+            // FIXME:: Change from_le_bytes properly.
+            let federation_id_length = u8::from_le_bytes(
+                first_buffer[(1 + u16_size)..(1 + u16_size + 1)]
+                    .try_into()
+                    .unwrap(),
+            );
+            println!("federationIdLength: {}", federation_id_length);
+            let mut federation_id_buffer = vec![0 as u8; federation_id_length.into()];
+            NetUtil::read_from_stream_errexit(
+                stream,
+                &mut federation_id_buffer,
+                fed_id,
+                "federation id",
+            );
+            let mut federation_id_received = String::new();
+            match String::from_utf8(federation_id_buffer) {
+                Ok(federation_id) => {
+                    federation_id_received = federation_id;
+                }
+                Err(e) => {
                     println!(
-                        "RTI expected a MSG_TYPE_FED_IDS message. Got {} (see net_common.h).",
-                        first_buffer[0]
+                        "Failed to convert a message buffer to a federation id ({})",
+                        e
                     );
                     return -1;
-                } else {
-                    // Received federate ID.
-                    // FIXME:: Change from_le_bytes properly.
-                    fed_id = u16::from_le_bytes(first_buffer[1..3].try_into().unwrap());
-                    println!("RTI received federate ID: {}.", fed_id);
-
-                    // Read the federation ID.  First read the length, which is one byte.
-                    // FIXME:: Change from_le_bytes properly.
-                    let federation_id_length =
-                        u8::from_le_bytes(first_buffer[3..4].try_into().unwrap());
-                    println!("federationIdLength: {}", federation_id_length);
-                    let mut second_buffer = vec![0 as u8; federation_id_length.into()];
-                    while match stream.read(&mut second_buffer) {
-                        Ok(second_size) => {
-                            match String::from_utf8(second_buffer.clone()) {
-                                Ok(federation_id_received) => {
-                                    println!(
-                                        "RTI received federation ID: {}.",
-                                        federation_id_received
-                                    );
-                                    let mut number_of_enclaves = 0;
-                                    let mut federation_id = String::new();
-                                    {
-                                        let mut locked_rti = cloned_rti.lock().unwrap();
-                                        number_of_enclaves = locked_rti.number_of_enclaves();
-                                        federation_id = locked_rti.federation_id();
-                                    }
-                                    // Compare the received federation ID to mine.
-                                    if federation_id_received != federation_id {
-                                        // Federation IDs do not match. Send back a MSG_TYPE_REJECT message.
-                                        println!(
-                                            "WARNING: Federate from another federation {} attempted to connect to RTI in federation {}.",
-                                            federation_id_received, federation_id
-                                        );
-                                        Self::send_reject(ErrType::FEDERATION_ID_DOES_NOT_MATCH);
-                                        std::process::exit(1);
-                                    } else {
-                                        if i32::from(fed_id) >= number_of_enclaves {
-                                            // Federate ID is out of range.
-                                            println!(
-                                                "RTI received federate ID {}, which is out of range.",
-                                                fed_id
-                                            );
-                                            Self::send_reject(ErrType::FEDERATE_ID_OUT_OF_RANGE);
-                                            std::process::exit(1);
-                                        } else {
-                                            let mut locked_rti = cloned_rti.lock().unwrap();
-                                            let idx: usize = fed_id.into();
-                                            let federate: &mut Federate =
-                                                &mut locked_rti.enclaves()[idx];
-                                            let enclave = federate.enclave();
-                                            if enclave.state() != FedState::NOT_CONNECTED {
-                                                println!(
-                                                    "RTI received duplicate federate ID: {}.",
-                                                    fed_id
-                                                );
-                                                Self::send_reject(ErrType::FEDERATE_ID_IN_USE);
-                                                std::process::exit(1);
-                                            }
-                                        }
-                                    }
-                                    println!(
-                                        "Federation ID matches! \"{}(received)\" <-> \"{}(_f_rti)\"",
-                                        federation_id_received,
-                                        federation_id
-                                    );
-
-                                    // TODO: Assign the address information for federate.
-
-                                    // Set the federate's state as pending
-                                    // because it is waiting for the start time to be
-                                    // sent by the RTI before beginning its execution.
-                                    {
-                                        let mut locked_rti = cloned_rti.lock().unwrap();
-                                        let idx: usize = fed_id.into();
-                                        let federate: &mut Federate =
-                                            &mut locked_rti.enclaves()[idx];
-                                        let enclave: &mut Enclave = federate.enclave();
-                                        enclave.set_state(FedState::PENDING);
-                                    }
-                                    println!(
-                                        "RTI responding with MSG_TYPE_ACK to federate {}.",
-                                        fed_id
-                                    );
-                                    // Send an MSG_TYPE_ACK message.
-                                    let mut ack_message: Vec<u8> = vec![MsgType::ACK.to_byte()];
-                                    println!("MSG_TYPE_ACK message: {:?}", ack_message);
-                                    for x in &ack_message {
-                                        print!("{:02X?} ", x);
-                                    }
-                                    println!("\n");
-                                    match stream.write(&ack_message) {
-                                        Ok(..) => {}
-                                        Err(_e) => {
-                                            println!(
-                                                "RTI failed to write MSG_TYPE_ACK message to federate {}.",
-                                                fed_id
-                                            );
-                                            // TODO: Handle errexit
-                                        }
-                                    }
-                                    return fed_id.into();
-                                }
-                                Err(e) => {
-                                    println!("Failed to convert a message buffer to a federation id ({})", e);
-                                    return -1;
-                                }
-                            };
-                        }
-                        Err(_e) => {
-                            println!("RTI failed to read federation id from federate {}.", fed_id);
-                            return -1;
-                        }
-                    } {}
                 }
-                true
             }
-            Err(_) => {
-                // FIXME: This should not exit with error but rather should just reject the connection.
+
+            println!("RTI received federation ID: {}.", federation_id_received);
+            let mut number_of_enclaves = 0;
+            let mut federation_id = String::new();
+            {
+                let mut locked_rti = cloned_rti.lock().unwrap();
+                number_of_enclaves = locked_rti.number_of_enclaves();
+                federation_id = locked_rti.federation_id();
+            }
+            // Compare the received federation ID to mine.
+            if federation_id_received != federation_id {
+                // Federation IDs do not match. Send back a MSG_TYPE_REJECT message.
                 println!(
-                    "RTI failed to read from accepted socket.\nPeer address: {}",
-                    stream.peer_addr().unwrap()
+                    "WARNING: Federate from another federation {} attempted to connect to RTI in federation {}.",
+                    federation_id_received, federation_id
                 );
-                stream.shutdown(Shutdown::Both).unwrap();
-                false
+                Self::send_reject(ErrType::FEDERATION_ID_DOES_NOT_MATCH);
+                std::process::exit(1);
+            } else {
+                if i32::from(fed_id) >= number_of_enclaves {
+                    // Federate ID is out of range.
+                    println!(
+                        "RTI received federate ID {}, which is out of range.",
+                        fed_id
+                    );
+                    Self::send_reject(ErrType::FEDERATE_ID_OUT_OF_RANGE);
+                    std::process::exit(1);
+                } else {
+                    let mut locked_rti = cloned_rti.lock().unwrap();
+                    let idx: usize = fed_id.into();
+                    let federate: &mut Federate = &mut locked_rti.enclaves()[idx];
+                    let enclave = federate.enclave();
+                    if enclave.state() != FedState::NOT_CONNECTED {
+                        println!("RTI received duplicate federate ID: {}.", fed_id);
+                        Self::send_reject(ErrType::FEDERATE_ID_IN_USE);
+                        std::process::exit(1);
+                    }
+                }
             }
-        } {}
+            println!(
+                "Federation ID matches! \"{}(received)\" <-> \"{}(_f_rti)\"",
+                federation_id_received, federation_id
+            );
+
+            // TODO: Assign the address information for federate.
+
+            // Set the federate's state as pending
+            // because it is waiting for the start time to be
+            // sent by the RTI before beginning its execution.
+            {
+                let mut locked_rti = cloned_rti.lock().unwrap();
+                let idx: usize = fed_id.into();
+                let federate: &mut Federate = &mut locked_rti.enclaves()[idx];
+                let enclave: &mut Enclave = federate.enclave();
+                enclave.set_state(FedState::PENDING);
+            }
+            println!("RTI responding with MSG_TYPE_ACK to federate {}.", fed_id);
+            // Send an MSG_TYPE_ACK message.
+            let mut ack_message: Vec<u8> = vec![MsgType::ACK.to_byte()];
+            match stream.write(&ack_message) {
+                Ok(..) => {}
+                Err(_e) => {
+                    println!(
+                        "RTI failed to write MSG_TYPE_ACK message to federate {}.",
+                        fed_id
+                    );
+                    // TODO: Handle errexit
+                }
+            }
+
+            return fed_id.into();
+        }
 
         fed_id.into()
     }
@@ -533,103 +497,91 @@ impl Server {
         let mut locked_rti = cloned_rti.lock().unwrap();
         let mut connection_info_header =
             vec![0 as u8; MSG_TYPE_NEIGHBOR_STRUCTURE_HEADER_SIZE.try_into().unwrap()];
-        while match stream.read(&mut connection_info_header) {
-            Ok(first_recv_size) => {
-                if connection_info_header[0] != MsgType::NEIGHBOR_STRUCTURE.to_byte() {
-                    println!("RTI was expecting a MsgType::NEIGHBOR_STRUCTURE message from federate {}. Got {} instead. Rejecting federate.", fed_id, connection_info_header[0]);
-                    Self::send_reject(ErrType::UNEXPECTED_MESSAGE);
-                    false
-                } else {
-                    let idx: usize = fed_id.into();
-                    let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
-                    let enclave: &mut Enclave = fed.enclave();
-                    enclave.set_num_upstream(connection_info_header[1].into());
-                    enclave.set_num_downstream(
-                        connection_info_header[1 + mem::size_of::<i32>()].into(),
-                    );
-                    println!(
-                        "RTI got {} upstreams and {} downstreams from federate {}.",
-                        enclave.num_upstream(),
-                        enclave.num_downstream(),
-                        fed_id
-                    );
+        NetUtil::read_from_stream_errexit(
+            stream,
+            &mut connection_info_header,
+            fed_id,
+            "MsgType::NEIGHBOR_STRUCTURE message header",
+        );
 
-                    let num_upstream = enclave.num_upstream() as usize;
-                    let num_downstream = enclave.num_downstream() as usize;
-                    let connections_info_body_size =
-                        ((mem::size_of::<u16>() + mem::size_of::<i64>()) * num_upstream)
-                            + (mem::size_of::<u16>() * num_downstream);
-                    let mut connection_info_body = vec![0 as u8; connections_info_body_size];
-                    while match stream.read(&mut connection_info_body) {
-                        Ok(second_recv_size) => {
-                            // Keep track of where we are in the buffer
-                            let mut message_head: usize = 0;
-                            // First, read the info about upstream federates
-                            for i in 0..num_upstream {
-                                // FIXME:: Change from_le_bytes properly.
-                                let upstream_id = u16::from_le_bytes(
-                                    connection_info_body
-                                        [message_head..(message_head + mem::size_of::<u16>())]
-                                        .try_into()
-                                        .unwrap(),
-                                );
-                                enclave.set_upstream_id_at(upstream_id, i);
-                                message_head += mem::size_of::<u16>();
-                                println!(
-                                    "upstream_id: {}, message_head: {}",
-                                    upstream_id, message_head
-                                );
-                                // FIXME:: Change from_le_bytes properly.
-                                let upstream_delay = i64::from_le_bytes(
-                                    connection_info_body
-                                        [message_head..(message_head + mem::size_of::<i64>())]
-                                        .try_into()
-                                        .unwrap(),
-                                );
-                                enclave.set_upstream_delay_at(Some(upstream_delay), i);
-                                message_head += mem::size_of::<i64>();
-                                println!(
-                                    "[{}] upstream_delay: {}, message_head: {}",
-                                    i, upstream_delay, message_head
-                                );
-                            }
+        if connection_info_header[0] != MsgType::NEIGHBOR_STRUCTURE.to_byte() {
+            println!("RTI was expecting a MsgType::NEIGHBOR_STRUCTURE message from federate {}. Got {} instead. Rejecting federate.", fed_id, connection_info_header[0]);
+            Self::send_reject(ErrType::UNEXPECTED_MESSAGE);
+            return false;
+        } else {
+            let idx: usize = fed_id.into();
+            let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+            let enclave: &mut Enclave = fed.enclave();
+            enclave.set_num_upstream(connection_info_header[1].into());
+            enclave.set_num_downstream(connection_info_header[1 + mem::size_of::<i32>()].into());
+            println!(
+                "RTI got {} upstreams and {} downstreams from federate {}.",
+                enclave.num_upstream(),
+                enclave.num_downstream(),
+                fed_id
+            );
 
-                            // Next, read the info about downstream federates
-                            for i in 0..num_downstream {
-                                // FIXME:: Change from_le_bytes properly.
-                                let downstream_id = u16::from_le_bytes(
-                                    connection_info_body
-                                        [message_head..(message_head + mem::size_of::<u16>())]
-                                        .try_into()
-                                        .unwrap(),
-                                );
-                                enclave.set_downstream_id_at(downstream_id, i);
-                                message_head += mem::size_of::<u16>();
-                                println!(
-                                    "downstream_id: {}, message_head: {}",
-                                    downstream_id, message_head
-                                );
-                            }
+            let num_upstream = enclave.num_upstream() as usize;
+            let num_downstream = enclave.num_downstream() as usize;
+            let connections_info_body_size = ((mem::size_of::<u16>() + mem::size_of::<i64>())
+                * num_upstream)
+                + (mem::size_of::<u16>() * num_downstream);
+            let mut connection_info_body = vec![0 as u8; connections_info_body_size];
+            NetUtil::read_from_stream_errexit(
+                stream,
+                &mut connection_info_body,
+                fed_id,
+                "MsgType::NEIGHBOR_STRUCTURE message body",
+            );
 
-                            false
-                        }
-                        Err(_) => {
-                            println!("RTI failed to read MsgType::NEIGHBOR_STRUCTURE message body from federate {}.",
-                            fed_id);
-                            false
-                        }
-                    } {}
-
-                    false
-                }
+            // Keep track of where we are in the buffer
+            let mut message_head: usize = 0;
+            // First, read the info about upstream federates
+            for i in 0..num_upstream {
+                // FIXME:: Change from_le_bytes properly.
+                let upstream_id = u16::from_le_bytes(
+                    connection_info_body[message_head..(message_head + mem::size_of::<u16>())]
+                        .try_into()
+                        .unwrap(),
+                );
+                enclave.set_upstream_id_at(upstream_id, i);
+                message_head += mem::size_of::<u16>();
+                println!(
+                    "upstream_id: {}, message_head: {}",
+                    upstream_id, message_head
+                );
+                // FIXME:: Change from_le_bytes properly.
+                let upstream_delay = i64::from_le_bytes(
+                    connection_info_body[message_head..(message_head + mem::size_of::<i64>())]
+                        .try_into()
+                        .unwrap(),
+                );
+                enclave.set_upstream_delay_at(Some(upstream_delay), i);
+                message_head += mem::size_of::<i64>();
+                println!(
+                    "[{}] upstream_delay: {}, message_head: {}",
+                    i, upstream_delay, message_head
+                );
             }
-            Err(_) => {
-                println!("RTI failed to read MsgType::NEIGHBOR_STRUCTURE message header from federate {}.",
-                fed_id);
-                stream.shutdown(Shutdown::Both).unwrap();
-                false
+
+            // Next, read the info about downstream federates
+            for i in 0..num_downstream {
+                // FIXME:: Change from_le_bytes properly.
+                let downstream_id = u16::from_le_bytes(
+                    connection_info_body[message_head..(message_head + mem::size_of::<u16>())]
+                        .try_into()
+                        .unwrap(),
+                );
+                enclave.set_downstream_id_at(downstream_id, i);
+                message_head += mem::size_of::<u16>();
+                println!(
+                    "downstream_id: {}, message_head: {}",
+                    downstream_id, message_head
+                );
             }
-        } {}
+
+            return true;
+        }
         true
     }
 
@@ -639,87 +591,81 @@ impl Server {
         stream: &mut TcpStream,
         _f_rti: Arc<Mutex<FederationRTI>>,
     ) -> bool {
+        // Read the MsgType::UDP_PORT message from the federate regardless of the status of
+        // clock synchronization. This message will tell the RTI whether the federate
+        // is doing clock synchronization, and if it is, what port to use for UDP.
         println!(
             "RTI waiting for MsgType::UDP_PORT from federate {}.",
             fed_id
         );
         let cloned_rti = Arc::clone(&_f_rti);
         let mut response = vec![0 as u8; 1 + mem::size_of::<u16>()];
-        while match stream.read(&mut response) {
-            Ok(first_recv_size) => {
-                if response[0] != MsgType::UDP_PORT.to_byte() {
-                    println!("RTI was expecting a MSG_TYPE_UDP_PORT message from federate {}. Got {} instead. Rejecting federate.", fed_id, response[0]);
-                    Self::send_reject(ErrType::UNEXPECTED_MESSAGE);
-                    return false;
-                } else {
-                    let mut clock_sync_global_status = ClockSyncStat::CLOCK_SYNC_INIT;
-                    {
-                        let mut locked_rti = cloned_rti.lock().unwrap();
-                        clock_sync_global_status = locked_rti.clock_sync_global_status();
-                    }
-
-                    if clock_sync_global_status >= ClockSyncStat::CLOCK_SYNC_INIT {
-                        // If no initial clock sync, no need perform initial clock sync.
-                        // FIXME:: Change from_le_bytes properly.
-                        let federate_UDP_port_number =
-                            u16::from_le_bytes(response[1..3].try_into().unwrap());
-
-                        println!(
-                            "RTI got MsgType::UDP_PORT {} from federate {}.",
-                            federate_UDP_port_number, fed_id
-                        );
-                        // A port number of UINT16_MAX means initial clock sync should not be performed.
-                        if federate_UDP_port_number != u16::MAX {
-                            // TODO: Implement this if body
-                            println!(
-                                "RTI finished initial clock synchronization with federate {}.",
-                                fed_id
-                            );
-                        }
-                        if clock_sync_global_status >= ClockSyncStat::CLOCK_SYNC_ON {
-                            // If no runtime clock sync, no need to set up the UDP port.
-                            if federate_UDP_port_number > 0 {
-                                // Initialize the UDP_addr field of the federate struct
-                                // TODO: Handle below assignments
-                                // fed.UDP_addr.sin_family = AF_INET;
-                                // fed.UDP_addr.sin_port = htons(federate_UDP_port_number);
-                                // fed.UDP_addr.sin_addr = fed->server_ip_addr;
-                            }
-                        } else {
-                            // Disable clock sync after initial round.
-                            let mut locked_rti = cloned_rti.lock().unwrap();
-                            let idx: usize = fed_id.into();
-                            let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
-                            fed.set_clock_synchronization_enabled(false);
-                        }
-                    } else {
-                        // No clock synchronization at all.
-                        // Clock synchronization is universally disabled via the clock-sync command-line parameter
-                        // (-c off was passed to the RTI).
-                        // Note that the federates are still going to send a MSG_TYPE_UDP_PORT message but with a payload (port) of -1.
-                        let mut locked_rti = cloned_rti.lock().unwrap();
-                        let idx: usize = fed_id.into();
-                        let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
-                        fed.set_clock_synchronization_enabled(false);
-                    }
-                }
-
-                false
+        NetUtil::read_from_stream_errexit(
+            stream,
+            &mut response,
+            fed_id,
+            "MsgType::UDP_PORT message",
+        );
+        if response[0] != MsgType::UDP_PORT.to_byte() {
+            println!("RTI was expecting a MSG_TYPE_UDP_PORT message from federate {}. Got {} instead. Rejecting federate.", fed_id, response[0]);
+            Self::send_reject(ErrType::UNEXPECTED_MESSAGE);
+            return false;
+        } else {
+            let mut clock_sync_global_status = ClockSyncStat::CLOCK_SYNC_INIT;
+            {
+                let mut locked_rti = cloned_rti.lock().unwrap();
+                clock_sync_global_status = locked_rti.clock_sync_global_status();
             }
-            Err(e) => {
+
+            if clock_sync_global_status >= ClockSyncStat::CLOCK_SYNC_INIT {
+                // If no initial clock sync, no need perform initial clock sync.
+                // FIXME:: Change from_le_bytes properly.
+                let federate_UDP_port_number =
+                    u16::from_le_bytes(response[1..3].try_into().unwrap());
+
                 println!(
-                    "RTI failed to read MsgType::UDP_PORT message from federate {}.",
-                    fed_id
+                    "RTI got MsgType::UDP_PORT {} from federate {}.",
+                    federate_UDP_port_number, fed_id
                 );
-                false
+                // A port number of UINT16_MAX means initial clock sync should not be performed.
+                if federate_UDP_port_number != u16::MAX {
+                    // TODO: Implement this if body
+                    println!(
+                        "RTI finished initial clock synchronization with federate {}.",
+                        fed_id
+                    );
+                }
+                if clock_sync_global_status >= ClockSyncStat::CLOCK_SYNC_ON {
+                    // If no runtime clock sync, no need to set up the UDP port.
+                    if federate_UDP_port_number > 0 {
+                        // Initialize the UDP_addr field of the federate struct
+                        // TODO: Handle below assignments
+                        // fed.UDP_addr.sin_family = AF_INET;
+                        // fed.UDP_addr.sin_port = htons(federate_UDP_port_number);
+                        // fed.UDP_addr.sin_addr = fed->server_ip_addr;
+                    }
+                } else {
+                    // Disable clock sync after initial round.
+                    let mut locked_rti = cloned_rti.lock().unwrap();
+                    let idx: usize = fed_id.into();
+                    let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+                    fed.set_clock_synchronization_enabled(false);
+                }
+            } else {
+                // No clock synchronization at all.
+                // Clock synchronization is universally disabled via the clock-sync command-line parameter
+                // (-c off was passed to the RTI).
+                // Note that the federates are still going to send a MSG_TYPE_UDP_PORT message but with a payload (port) of -1.
+                let mut locked_rti = cloned_rti.lock().unwrap();
+                let idx: usize = fed_id.into();
+                let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+                fed.set_clock_synchronization_enabled(false);
             }
-        } {}
-
+        }
         true
     }
 
     fn handle_timestamp(
-        // buffer: &Vec<u8>,
         fed_id: u16,
         stream: &mut TcpStream,
         _f_rti: Arc<Mutex<FederationRTI>>,
@@ -727,22 +673,14 @@ impl Server {
         received_start_times: Arc<(Mutex<bool>, Condvar)>,
         sent_start_time: Arc<(Mutex<bool>, Condvar)>,
     ) {
-        let buffer_size = mem::size_of::<i64>();
-        let mut buffer = vec![0 as u8; buffer_size];
-        while match stream.read(&mut buffer) {
-            Ok(bytes_read) => {
-                println!("  handle_timestamp = ({:?})", buffer);
-                false
-            }
-            Err(_) => {
-                println!("RTI failed to read message chunks.");
-                // FIXME: Replace return to exit
-                return;
-            }
-        } {}
+        let mut buffer = vec![0 as u8; mem::size_of::<i64>()];
+        let mut bytes_read = NetUtil::read_from_stream(stream, &mut buffer, fed_id);
+        if bytes_read < mem::size_of::<i64>() {
+            println!("ERROR reading timestamp from federate {}.", fed_id);
+        }
 
         // FIXME: Check whether swap_bytes_if_big_endian_int64() is implemented correctly
-        let timestamp = i64::from_le_bytes(buffer[0..buffer_size].try_into().unwrap());
+        let timestamp = i64::from_le_bytes(buffer.try_into().unwrap());
         println!("RTI received timestamp message with time: {} .", timestamp);
 
         let mut num_feds_proposed_start = 0;
@@ -834,6 +772,72 @@ impl Server {
         }
     }
 
+    fn handle_federate_resign(
+        fed_id: u16,
+        _f_rti: Arc<Mutex<FederationRTI>>,
+        start_time: Arc<Mutex<tag::StartTime>>,
+        sent_start_time: Arc<(Mutex<bool>, Condvar)>,
+    ) {
+        // Nothing more to do. Close the socket and exit.
+
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let idx: usize = fed_id.into();
+            let my_fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+            my_fed.enclave().set_state(FedState::NOT_CONNECTED);
+        }
+
+        // Indicate that there will no further events from this federate.
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let idx: usize = fed_id.into();
+            let my_fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+            my_fed.enclave().set_next_event(Tag::forever_tag());
+        }
+
+        // According to this: https://stackoverflow.com/questions/4160347/close-vs-shutdown-socket,
+        // the close should happen when receiving a 0 length message from the other end.
+        // Here, we just signal the other side that no further writes to the socket are
+        // forthcoming, which should result in the other end getting a zero-length reception.
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let idx: usize = fed_id.into();
+            let my_fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+            my_fed
+                .stream()
+                .as_ref()
+                .unwrap()
+                .shutdown(Shutdown::Both)
+                .unwrap();
+
+            println!("Federate {} has resigned.", fed_id);
+        }
+
+        // Check downstream federates to see whether they should now be granted a TAG.
+        // To handle cycles, need to create a boolean array to keep
+        // track of which upstream federates have been visited.
+        let mut number_of_enclaves = 0;
+        {
+            let locked_rti = _f_rti.lock().unwrap();
+            number_of_enclaves = locked_rti.number_of_enclaves();
+        }
+        let mut start_time_value = 0;
+        {
+            let locked_start_time = start_time.lock().unwrap();
+            start_time_value = locked_start_time.start_time();
+        }
+        // FIXME: Handle unwrap properly.
+        let mut visited = vec![false as bool; number_of_enclaves.try_into().unwrap()]; // Initializes to 0.
+        Enclave::notify_downstream_advance_grant_if_safe(
+            _f_rti.clone(),
+            fed_id,
+            number_of_enclaves,
+            start_time_value,
+            &mut visited,
+            sent_start_time,
+        );
+    }
+
     fn handle_timed_message(
         message_type: u8,
         fed_id: u16,
@@ -843,29 +847,19 @@ impl Server {
         sent_start_time: Arc<(Mutex<bool>, Condvar)>,
     ) {
         let header_size = 1
-            + std::mem::size_of::<u16>()
-            + std::mem::size_of::<u16>()
-            + std::mem::size_of::<i32>()
-            + std::mem::size_of::<i64>()
-            + std::mem::size_of::<u32>();
+            + mem::size_of::<u16>()
+            + mem::size_of::<u16>()
+            + mem::size_of::<i32>()
+            + mem::size_of::<i64>()
+            + mem::size_of::<u32>();
         // Read the header, minus the first byte which has already been read.
         let mut header_buffer = vec![0 as u8; (header_size - 1).try_into().unwrap()];
-        while match stream.read(&mut header_buffer) {
-            Ok(bytes_read) => {
-                println!("  TAGGED HEADER = ({:?})", header_buffer);
-                false
-            }
-            Err(_) => {
-                println!("RTI failed to read message chunks.");
-                // FIXME: Replace return to exit
-                return;
-            }
-        } {}
-        println!("  [[[ TAGGED BUFFER ]]]");
-        for x in &header_buffer {
-            print!("{:02X?} ", x);
-        }
-        println!("\n");
+        NetUtil::read_from_stream_errexit(
+            stream,
+            &mut header_buffer,
+            fed_id,
+            "the timed message header",
+        );
         // Extract the header information. of the sender
         let mut reactor_port_id: u16 = 0;
         let mut federate_id: u16 = 0;
@@ -910,29 +904,9 @@ impl Server {
                 intended_tag.time() - start_time_value, intended_tag.microstep());
 
         let mut message_buffer = vec![0 as u8; bytes_to_read.try_into().unwrap()];
-        {
-            while match stream.read(&mut message_buffer) {
-                Ok(bytes_read) => {
-                    println!("  MESSAGE = ({:?})", message_buffer);
-                    false
-                }
-                Err(_) => {
-                    println!("RTI failed to read message chunks.");
-                    // FIXME: Replace return to exit
-                    return;
-                }
-            } {}
-        }
+        NetUtil::read_from_stream_errexit(stream, &mut message_buffer, fed_id, "timed message");
         // FIXME: Handle "as i32" properly.
         let bytes_read = bytes_to_read + header_size as i32;
-        let mut result_buffer = vec![0 as u8; 1];
-        result_buffer[0] = message_type;
-        result_buffer = vec![result_buffer.clone(), header_buffer, message_buffer].concat();
-        println!("  [[[ result_buffer ]]]");
-        for x in &result_buffer {
-            print!("{:02X?} ", x);
-        }
-        println!("\n");
         // Following only works for string messages.
         // println!("Message received by RTI: {}.", buffer + header_size);
 
@@ -1020,6 +994,9 @@ impl Server {
             }
 
             let mut destination_stream = fed.stream().as_ref().unwrap();
+            let mut result_buffer = vec![0 as u8; 1];
+            result_buffer[0] = message_type;
+            result_buffer = vec![result_buffer.clone(), header_buffer, message_buffer].concat();
             for x in &result_buffer {
                 print!("{:02X?} ", x);
             }
@@ -1089,6 +1066,35 @@ impl Server {
         );
     }
 
+    fn update_federate_next_event_tag_locked(
+        _f_rti: Arc<Mutex<FederationRTI>>,
+        fed_id: u16,
+        mut next_event_tag: Tag,
+        start_time: Instant,
+        sent_start_time: Arc<(Mutex<bool>, Condvar)>,
+    ) {
+        let mut min_in_transit_tag = Tag::new(0, 0);
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let idx: usize = fed_id.into();
+            let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
+            min_in_transit_tag = MessageRecord::get_minimum_in_transit_message_tag(
+                fed.in_transit_message_tags(),
+                start_time,
+            );
+        }
+        if Tag::lf_tag_compare(&min_in_transit_tag, &next_event_tag) < 0 {
+            next_event_tag = min_in_transit_tag.clone();
+        }
+        Enclave::update_enclave_next_event_tag_locked(
+            _f_rti,
+            fed_id,
+            next_event_tag,
+            start_time,
+            sent_start_time,
+        );
+    }
+
     fn handle_next_event_tag(
         buffer: &Vec<u8>,
         fed_id: u16,
@@ -1098,22 +1104,12 @@ impl Server {
         sent_start_time: Arc<(Mutex<bool>, Condvar)>,
     ) {
         let mut header_buffer = vec![0 as u8; mem::size_of::<i64>() + mem::size_of::<u32>()];
-        while match stream.read(&mut header_buffer) {
-            Ok(bytes_read) => {
-                println!("  handle_next_event_tag = ({:?})", header_buffer);
-                false
-            }
-            Err(_) => {
-                println!("RTI failed to read message chunks.");
-                // FIXME: Replace return to exit
-                return;
-            }
-        } {}
-        println!("  [[[ handle_next_event_tag ]]]");
-        for x in &header_buffer {
-            print!("{:02X?} ", x);
-        }
-        println!("\n");
+        NetUtil::read_from_stream_errexit(
+            stream,
+            &mut header_buffer,
+            fed_id,
+            "the content of the next event tag",
+        );
 
         // Acquire a mutex lock to ensure that this state does not change while a
         // message is in transport or being used to determine a TAG.
@@ -1149,35 +1145,6 @@ impl Server {
         );
     }
 
-    fn update_federate_next_event_tag_locked(
-        _f_rti: Arc<Mutex<FederationRTI>>,
-        fed_id: u16,
-        mut next_event_tag: Tag,
-        start_time: Instant,
-        sent_start_time: Arc<(Mutex<bool>, Condvar)>,
-    ) {
-        let mut min_in_transit_tag = Tag::new(0, 0);
-        {
-            let mut locked_rti = _f_rti.lock().unwrap();
-            let idx: usize = fed_id.into();
-            let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
-            min_in_transit_tag = MessageRecord::get_minimum_in_transit_message_tag(
-                fed.in_transit_message_tags(),
-                start_time,
-            );
-        }
-        if Tag::lf_tag_compare(&min_in_transit_tag, &next_event_tag) < 0 {
-            next_event_tag = min_in_transit_tag.clone();
-        }
-        Enclave::update_enclave_next_event_tag_locked(
-            _f_rti,
-            fed_id,
-            next_event_tag,
-            start_time,
-            sent_start_time,
-        );
-    }
-
     fn handle_logical_tag_complete(
         buffer: &Vec<u8>,
         fed_id: u16,
@@ -1188,22 +1155,12 @@ impl Server {
         sent_start_time: Arc<(Mutex<bool>, Condvar)>,
     ) {
         let mut header_buffer = vec![0 as u8; mem::size_of::<i64>() + mem::size_of::<u32>()];
-        while match stream.read(&mut header_buffer) {
-            Ok(bytes_read) => {
-                println!("  handle_logical_tag_complete = ({:?})", header_buffer);
-                false
-            }
-            Err(_) => {
-                println!("RTI failed to read message chunks.");
-                // FIXME: Replace return to exit
-                return;
-            }
-        } {}
-        println!("  [[[ handle_logical_tag_complete ]]]");
-        for x in &header_buffer {
-            print!("{:02X?} ", x);
-        }
-        println!("\n");
+        NetUtil::read_from_stream_errexit(
+            stream,
+            &mut header_buffer,
+            fed_id,
+            "the content of the logical tag complete",
+        );
         let completed = NetUtil::extract_tag(
             header_buffer[0..(mem::size_of::<i64>() + mem::size_of::<u32>())]
                 .try_into()
@@ -1253,22 +1210,12 @@ impl Server {
         println!("RTI handling stop_request from federate {}.", fed_id);
 
         let mut header_buffer = vec![0 as u8; MSG_TYPE_STOP_REQUEST_LENGTH - 1];
-        while match stream.read(&mut header_buffer) {
-            Ok(bytes_read) => {
-                println!("  handle_logical_tag_complete = ({:?})", header_buffer);
-                false
-            }
-            Err(_) => {
-                println!("RTI failed to read message chunks.");
-                // FIXME: Replace return to exit
-                return;
-            }
-        } {}
-        println!("  [[[ handle_logical_tag_complete ]]]");
-        for x in &header_buffer {
-            print!("{:02X?} ", x);
-        }
-        println!("\n");
+        NetUtil::read_from_stream_errexit(
+            stream,
+            &mut header_buffer,
+            fed_id,
+            "the MsgType::STOP_REQUEST payload",
+        );
 
         // Acquire a mutex lock to ensure that this state does change while a
         // message is in transport or being used to determine a TAG.
@@ -1547,7 +1494,7 @@ impl Server {
         NetUtil::encode_int32(
             microstep as i32,
             outgoing_buffer,
-            1 + std::mem::size_of::<Instant>(),
+            1 + mem::size_of::<Instant>(),
         );
     }
 
@@ -1559,7 +1506,7 @@ impl Server {
         NetUtil::encode_int32(
             microstep as i32,
             stop_request_buffer,
-            1 + std::mem::size_of::<Instant>(),
+            1 + mem::size_of::<Instant>(),
         );
     }
 
@@ -1572,22 +1519,12 @@ impl Server {
         stop_granted: Arc<Mutex<StopGranted>>,
     ) {
         let mut header_buffer = vec![0 as u8; MSG_TYPE_STOP_REQUEST_REPLY_LENGTH - 1];
-        while match stream.read(&mut header_buffer) {
-            Ok(bytes_read) => {
-                println!("  handle_stop_request_reply = ({:?})", header_buffer);
-                false
-            }
-            Err(_) => {
-                println!("RTI failed to read message chunks.");
-                // FIXME: Replace return to exit
-                return;
-            }
-        } {}
-        println!("  [[[ handle_stop_request_reply ]]]");
-        for x in &header_buffer {
-            print!("{:02X?} ", x);
-        }
-        println!("\n");
+        NetUtil::read_from_stream_errexit(
+            stream,
+            &mut header_buffer,
+            fed_id,
+            "the reply to MsgType::STOP_REQUEST message",
+        );
 
         let federate_stop_tag = NetUtil::extract_tag(
             header_buffer[0..(MSG_TYPE_STOP_REQUEST_REPLY_LENGTH - 1)]
@@ -1626,72 +1563,6 @@ impl Server {
         );
     }
 
-    fn handle_federate_resign(
-        fed_id: u16,
-        _f_rti: Arc<Mutex<FederationRTI>>,
-        start_time: Arc<Mutex<tag::StartTime>>,
-        sent_start_time: Arc<(Mutex<bool>, Condvar)>,
-    ) {
-        // Nothing more to do. Close the socket and exit.
-
-        {
-            let mut locked_rti = _f_rti.lock().unwrap();
-            let idx: usize = fed_id.into();
-            let my_fed: &mut Federate = &mut locked_rti.enclaves()[idx];
-            my_fed.enclave().set_state(FedState::NOT_CONNECTED);
-        }
-
-        // Indicate that there will no further events from this federate.
-        {
-            let mut locked_rti = _f_rti.lock().unwrap();
-            let idx: usize = fed_id.into();
-            let my_fed: &mut Federate = &mut locked_rti.enclaves()[idx];
-            my_fed.enclave().set_next_event(Tag::forever_tag());
-        }
-
-        // According to this: https://stackoverflow.com/questions/4160347/close-vs-shutdown-socket,
-        // the close should happen when receiving a 0 length message from the other end.
-        // Here, we just signal the other side that no further writes to the socket are
-        // forthcoming, which should result in the other end getting a zero-length reception.
-        {
-            let mut locked_rti = _f_rti.lock().unwrap();
-            let idx: usize = fed_id.into();
-            let my_fed: &mut Federate = &mut locked_rti.enclaves()[idx];
-            my_fed
-                .stream()
-                .as_ref()
-                .unwrap()
-                .shutdown(Shutdown::Both)
-                .unwrap();
-
-            println!("Federate {} has resigned.", fed_id);
-        }
-
-        // Check downstream federates to see whether they should now be granted a TAG.
-        // To handle cycles, need to create a boolean array to keep
-        // track of which upstream federates have been visited.
-        let mut number_of_enclaves = 0;
-        {
-            let locked_rti = _f_rti.lock().unwrap();
-            number_of_enclaves = locked_rti.number_of_enclaves();
-        }
-        let mut start_time_value = 0;
-        {
-            let locked_start_time = start_time.lock().unwrap();
-            start_time_value = locked_start_time.start_time();
-        }
-        // FIXME: Handle unwrap properly.
-        let mut visited = vec![false as bool; number_of_enclaves.try_into().unwrap()]; // Initializes to 0.
-        Enclave::notify_downstream_advance_grant_if_safe(
-            _f_rti.clone(),
-            fed_id,
-            number_of_enclaves,
-            start_time_value,
-            &mut visited,
-            sent_start_time,
-        );
-    }
-
     fn handle_port_absent_message(
         buffer: &Vec<u8>,
         fed_id: u16,
@@ -1704,24 +1575,14 @@ impl Server {
             mem::size_of::<u16>() * 2 + mem::size_of::<i64>() + mem::size_of::<u32>();
 
         let mut header_buffer = vec![0 as u8; message_size];
-        while match stream.read(&mut header_buffer) {
-            Ok(bytes_read) => {
-                println!("  handle_stop_request_reply = ({:?})", header_buffer);
-                false
-            }
-            Err(_) => {
-                println!("RTI failed to read message chunks.");
-                // FIXME: Replace return to exit
-                return;
-            }
-        } {}
-        println!("  [[[ handle_stop_request_reply ]]]");
-        for x in &header_buffer {
-            print!("{:02X?} ", x);
-        }
-        println!("\n");
+        NetUtil::read_from_stream_errexit(
+            stream,
+            &mut header_buffer,
+            fed_id,
+            "port absent message",
+        );
 
-        let u16_size = std::mem::size_of::<u16>();
+        let u16_size = mem::size_of::<u16>();
         // FIXME:: Change from_le_bytes properly.
         let reactor_port_id = u16::from_le_bytes(header_buffer[0..(u16_size)].try_into().unwrap());
         let federate_id = u16::from_le_bytes(

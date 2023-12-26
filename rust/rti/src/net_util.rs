@@ -6,13 +6,61 @@
  * License in [BSD 2-clause](..)
  * @brief ..
  */
+use std::io::Read;
 use std::mem;
+use std::net::TcpStream;
 
 use crate::tag::Tag;
 
 pub struct NetUtil {}
 
 impl NetUtil {
+    pub fn read_from_stream_errexit(
+        stream: &mut TcpStream,
+        buffer: &mut Vec<u8>,
+        fed_id: u16,
+        err_msg: &str,
+    ) -> usize {
+        let mut bytes_read = 0;
+        while match stream.read(buffer) {
+            Ok(msg_size) => {
+                bytes_read = msg_size;
+                false
+            }
+            Err(_) => {
+                println!("RTI failed to read {} from federate {}.", err_msg, fed_id);
+                // TODO: Implement similar to rti_lib.c
+                std::process::exit(1);
+            }
+        } {}
+        print!("  [[[ PACKET from {} ]]] = ", fed_id);
+        for x in buffer {
+            print!("{:02X?} ", x);
+        }
+        println!("\n");
+        bytes_read
+    }
+
+    pub fn read_from_stream(stream: &mut TcpStream, buffer: &mut Vec<u8>, fed_id: u16) -> usize {
+        let mut bytes_read = 0;
+        while match stream.read(buffer) {
+            Ok(msg_size) => {
+                bytes_read = msg_size;
+                false
+            }
+            Err(_) => {
+                println!("ERROR reading the stream of federate {}.", fed_id);
+                false
+            }
+        } {}
+        print!("  [[[ BUFFER from {} ]]] = ", fed_id);
+        for x in buffer {
+            print!("{:02X?} ", x);
+        }
+        println!("\n");
+        bytes_read
+    }
+
     /**
      * Write the specified data as a sequence of bytes starting
      * at the specified address. This encodes the data in little-endian

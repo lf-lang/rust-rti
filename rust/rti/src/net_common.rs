@@ -28,6 +28,8 @@ pub const FED_COM_BUFFER_SIZE: usize = 256;
  */
 pub const DELAY_START: i64 = 1;
 
+pub const MSG_TYPE_TIMESTAMP_LENGTH: usize = 1 + std::mem::size_of::<i64>();
+
 /**
  * Byte identifying a stop request. This message is first sent to the RTI by a federate
  * that would like to stop execution at the specified tag. The RTI will forward
@@ -81,6 +83,9 @@ pub const MSG_TYPE_STOP_REQUEST_REPLY_LENGTH: usize =
 pub const MSG_TYPE_STOP_GRANTED_LENGTH: usize =
     1 + std::mem::size_of::<Instant>() + std::mem::size_of::<Microstep>();
 
+pub const MSG_TYPE_NEIGHBOR_STRUCTURE_HEADER_SIZE: i32 = 9;
+
+#[derive(Debug)]
 pub enum MsgType {
     IGNORE,
     FED_IDS,

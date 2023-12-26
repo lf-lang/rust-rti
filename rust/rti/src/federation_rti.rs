@@ -20,15 +20,6 @@ use crate::ClockSyncStat;
 /**
  * Structure that an RTI instance uses to keep track of its own and its
  * corresponding federates' state.
- * It is a special case of `enclave_rti_t` (declared in enclave.h). Inheritence
- * is mimicked by having the first attributes to be the same as of enclave_rti_t,
- * except that enclaves attribute here is of type `federate_t**`, while it
- * is of type `enclave_t**` in `enclave_rti_t`.
- *     // **************** IMPORTANT!!! ********************
- *     // **   If you make any change to this struct,     **
- *     // **   you MUST also change  enclave_rti_t in     **
- *     // ** (enclave.h)! The change must exactly match.  **
- *     // **************************************************
  */
 pub struct FederationRTI {
     ////////////////// Enclave specific attributes //////////////////
