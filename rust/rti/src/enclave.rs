@@ -227,7 +227,6 @@ impl Enclave {
         // Check to see whether we can reply now with a tag advance grant.
         // If the enclave has no upstream enclaves, then it does not wait for
         // nor expect a reply. It just proceeds to advance time.
-        println!("\n[{}] e->num_upstream = {}", fed_id, num_upstream);
         if num_upstream > 0 {
             Self::notify_advance_grant_if_safe(
                 _f_rti.clone(),
@@ -248,10 +247,6 @@ impl Enclave {
             start_time,
             &mut visited,
             sent_start_time,
-        );
-        println!(
-            "\n[{}] END OF notify_downstream_advance_grant_if_safe\n",
-            fed_id
         );
     }
 
@@ -275,11 +270,15 @@ impl Enclave {
                     sent_start_time,
                 );
             } else {
-                println!("CALL [notify_tag_advance_grant]");
-                // Self::notify_tag_advance_grant(e, grant.tag());
+                Self::notify_tag_advance_grant(
+                    _f_rti,
+                    fed_id,
+                    grant.tag(),
+                    start_time,
+                    sent_start_time,
+                );
             }
         }
-        println!("[{}] END OF notify_advance_grant_if_safe\n", fed_id);
     }
 
     fn tag_advance_grant_if_safe(
@@ -293,8 +292,6 @@ impl Enclave {
         // Find the earliest LTC of upstream enclaves (M).
         {
             let mut min_upstream_completed = Tag::forever_tag();
-            println!("  [{}] [IN tag_advance_grant_if_safe]  1111111", fed_id);
-            println!("  [{}] [IN tag_advance_grant_if_safe]  2222222", fed_id);
             let mut locked_rti = _f_rti.lock().unwrap();
             let idx: usize = fed_id.into();
             let mut enclaves = locked_rti.enclaves();
@@ -303,8 +300,7 @@ impl Enclave {
             let mut upstreams = e.upstream();
             let mut upstream_delay = e.upstream_delay();
             for j in upstreams {
-                println!("[{}]", *j);
-                // FIXME:: Replace "as usize" properly.
+                // FIXME: Replace "as usize" properly.
                 let delay = upstream_delay[*j as usize];
                 let _fed = &enclaves[*j as usize];
                 let upstream = _fed.e();
@@ -333,7 +329,6 @@ impl Enclave {
                 && Tag::lf_tag_compare(&min_upstream_completed, &e.next_event()) >= 0
             // The enclave has to advance its tag
             {
-                println!("  RETURN result");
                 result.set_tag(min_upstream_completed);
                 return result;
             }
@@ -384,7 +379,7 @@ impl Enclave {
             let mut upstreams = e.upstream();
             let mut upstream_delay = e.upstream_delay();
             for j in upstreams {
-                // FIXME:: Replace "as usize" properly.
+                // FIXME: Replace "as usize" properly.
                 let delay = upstream_delay[*j as usize];
                 let _fed = &enclaves[*j as usize];
                 let upstream = _fed.e();
@@ -414,11 +409,11 @@ impl Enclave {
                 // Adjust by the "after" delay.
                 // Note that "no delay" is encoded as NEVER,
                 // whereas one microstep delay is encoded as 0LL.
-                // FIXME:: Replace "as usize" properly.
+                // FIXME: Replace "as usize" properly.
                 let candidate =
                     Tag::lf_delay_strict(&upstream_next_event, e.upstream_delay[*j as usize]);
 
-                // FIXME:: Replace "as usize" properly.
+                // FIXME: Replace "as usize" properly.
                 if e.upstream_delay[*j as usize] == Some(i64::MIN) {
                     if Tag::lf_tag_compare(&candidate, &t_d_zero_delay) < 0 {
                         t_d_zero_delay = candidate;
@@ -462,7 +457,6 @@ impl Enclave {
         // The grant is not redundant.
         {
             // All upstream enclaves have events with a larger tag than fed, so it is safe to send a TAG.
-            println!("  UPPPPPPP");
             println!("Earliest upstream message time for fed/encl {} is ({},{}) (adjusted by after delay). Granting tag advance for ({},{})",
                     fed_id,
                     t_d.time() - start_time, t_d.microstep(),
@@ -477,7 +471,6 @@ impl Enclave {
         {
             // Some upstream enclaves has an event that has the same tag as fed's next event, so we can only provisionally
             // grant a TAG (via a PTAG).
-            println!("  DOWNNNNNN");
             println!("Earliest upstream message time for fed/encl {} is ({},{}) (adjusted by after delay). Granting provisional tag advance.",
                 fed_id,
                 t_d_zero_delay.time() - start_time, t_d_zero_delay.microstep());
@@ -495,14 +488,14 @@ impl Enclave {
         visited: &mut Vec<bool>,
         start_time: Instant,
     ) -> Tag {
-        // FIXME:: Replace "as usize" properly.
+        // FIXME: Replace "as usize" properly.
         if visited[e.id() as usize] || e.state() == FedState::NOT_CONNECTED {
             // Enclave has stopped executing or we have visited it before.
             // No point in checking upstream enclaves.
             return candidate.clone();
         }
 
-        // FIXME:: Replace "as usize" properly.
+        // FIXME: Replace "as usize" properly.
         visited[e.id() as usize] = true;
         let mut result = e.next_event();
 
@@ -521,13 +514,13 @@ impl Enclave {
         // an event that would result in an earlier next event.
         let num_upstream = e.num_upstream();
         for i in 0..num_upstream {
-            // FIXME:: Replace "as usize" properly.
+            // FIXME: Replace "as usize" properly.
             let e = enclaves[e.upstream()[i as usize] as usize].e();
             let mut upstream_result =
                 Self::transitive_next_event(enclaves, e, result.clone(), visited, start_time);
 
             // Add the "after" delay of the connection to the result.
-            // FIXME:: Replace "as usize" properly.
+            // FIXME: Replace "as usize" properly.
             upstream_result = Tag::lf_delay_tag(&upstream_result, e.upstream_delay()[i as usize]);
 
             // If the adjusted event time is less than the result so far, update the result.
@@ -569,18 +562,18 @@ impl Enclave {
                 let (lock, condvar) = &*sent_start_time;
                 let mut notified = lock.lock().unwrap();
                 while !*notified {
-                    println!("[{}] [PROVISIONAL] cond wait", fed_id);
                     notified = condvar.wait(notified).unwrap();
                 }
             }
         }
         let message_length = 1 + mem::size_of::<i64>() + mem::size_of::<u32>();
-        // FIXME:: Replace "as usize" properly.
+        // FIXME: Replace "as usize" properly.
         let mut buffer = vec![0 as u8; message_length as usize];
         buffer[0] = MsgType::TAG_ADVANCE_GRANT.to_byte();
         NetUtil::encode_int64(tag.time(), &mut buffer, 1);
+        // FIXME: Replace "as i32" properly.
         NetUtil::encode_int32(
-            tag.microstep().try_into().unwrap(),
+            tag.microstep() as i32,
             &mut buffer,
             1 + mem::size_of::<i64>(),
         );
@@ -592,9 +585,8 @@ impl Enclave {
         {
             let mut locked_rti = _f_rti.lock().unwrap();
             let mut enclaves = locked_rti.enclaves();
-            // FIXME:: Replace "as usize" properly.
+            // FIXME: Replace "as usize" properly.
             let fed: &Federate = &enclaves[fed_id as usize];
-            println!("  [TAG] FED_ID = {}", fed_id);
             let mut e = fed.e();
             let mut stream = fed.stream().as_ref().unwrap();
             match stream.write(&buffer) {
@@ -612,9 +604,8 @@ impl Enclave {
             }
         }
         {
-            println!("    [TAG] [{}] Finish writing a message.", fed_id);
             let mut locked_rti = _f_rti.lock().unwrap();
-            // FIXME:: Replace "as usize" properly.
+            // FIXME: Replace "as usize" properly.
             let mut_fed: &mut Federate = &mut locked_rti.enclaves()[fed_id as usize];
             let mut enclave = mut_fed.enclave();
             if error_occurred {
@@ -623,8 +614,7 @@ impl Enclave {
             } else {
                 enclave.set_last_granted(tag.clone());
                 println!(
-                    "     [fed_id: {}] RTI sent to federate {} the Tag Advance Grant (TAG) ({},{}).",
-                    fed_id,
+                    "RTI sent to federate {} the Tag Advance Grant (TAG) ({},{}).",
                     enclave.id(),
                     tag.time() - start_time,
                     tag.microstep()
@@ -660,13 +650,12 @@ impl Enclave {
                 let (lock, condvar) = &*sent_start_time;
                 let mut notified = lock.lock().unwrap();
                 while !*notified {
-                    println!("[{}] [PROVISIONAL] cond wait", fed_id);
                     notified = condvar.wait(notified).unwrap();
                 }
             }
         }
         let message_length = 1 + mem::size_of::<i64>() + mem::size_of::<u32>();
-        // FIXME:: Replace "as usize" properly.
+        // FIXME: Replace "as usize" properly.
         let mut buffer = vec![0 as u8; message_length as usize];
         buffer[0] = MsgType::PROVISIONAL_TAG_ADVANCE_GRANT.to_byte();
         NetUtil::encode_int64(tag.time(), &mut buffer, 1);
@@ -683,9 +672,8 @@ impl Enclave {
         {
             let mut locked_rti = _f_rti.lock().unwrap();
             let mut enclaves = locked_rti.enclaves();
-            // FIXME:: Replace "as usize" properly.
+            // FIXME: Replace "as usize" properly.
             let fed: &Federate = &enclaves[fed_id as usize];
-            println!("  [PROVISIONAL] FED_ID = {}", fed_id);
             let mut e = fed.e();
             let mut stream = fed.stream().as_ref().unwrap();
             match stream.write(&buffer) {
@@ -704,9 +692,8 @@ impl Enclave {
             }
         }
         {
-            println!("    [PROVISIONAL] [{}] Finish writing a message.", fed_id);
             let mut locked_rti = _f_rti.lock().unwrap();
-            // FIXME:: Replace "as usize" properly.
+            // FIXME: Replace "as usize" properly.
             let mut_fed: &mut Federate = &mut locked_rti.enclaves()[fed_id as usize];
             let mut enclave = mut_fed.enclave();
             if error_occurred {
@@ -716,8 +703,7 @@ impl Enclave {
 
             enclave.set_last_provisionally_granted(tag.clone());
             println!(
-                "[fed_id: {}] RTI sent to federate {} the Provisional Tag Advance Grant (PTAG) ({},{}).",
-                fed_id,
+                "RTI sent to federate {} the Provisional Tag Advance Grant (PTAG) ({},{}).",
                 enclave.id(),
                 tag.time() - start_time,
                 tag.microstep()
@@ -739,10 +725,6 @@ impl Enclave {
             let mut e = fed.e();
             let num_upstream = e.num_upstream();
         }
-        println!(
-            "      [PROVISIONAL] [{}] num_upstream = {}",
-            fed_id, num_upstream
-        );
         for j in 0..num_upstream {
             let mut e_id = 0;
             let mut upstream_next_event = Tag::never_tag();
@@ -752,7 +734,7 @@ impl Enclave {
                 let idx: usize = fed_id.into();
                 let fed: &Federate = &enclaves[idx];
                 let e_id = fed.e().upstream()[j];
-                // FIXME:: Replace "as usize" properly.
+                // FIXME: Replace "as usize" properly.
                 let upstream: &Federate = &enclaves[e_id as usize];
 
                 // Ignore this federate if it has resigned.
@@ -761,7 +743,7 @@ impl Enclave {
                 }
                 // To handle cycles, need to create a boolean array to keep
                 // track of which upstream federates have been visited.
-                // FIXME:: Replace "as usize" properly.
+                // FIXME: Replace "as usize" properly.
                 let mut visited = vec![false; number_of_enclaves as usize];
 
                 // Find the (transitive) next event tag upstream.
@@ -798,8 +780,7 @@ impl Enclave {
         visited: &mut Vec<bool>,
         sent_start_time: Arc<(Mutex<bool>, Condvar)>,
     ) {
-        println!("[{}] Enter NOTIFY_DOWNSTREAM", fed_id);
-        // FIXME:: Replace "as usize" properly.
+        // FIXME: Replace "as usize" properly.
         visited[fed_id as usize] = true;
         let mut num_downstream = 0;
         {
@@ -808,11 +789,6 @@ impl Enclave {
             let fed: &Federate = &locked_rti.enclaves()[idx];
             let mut e = fed.e();
             num_downstream = e.num_downstream();
-            println!(
-                "   [{}] number of downstreams = {}",
-                fed_id,
-                e.num_downstream()
-            );
         }
         for i in 0..num_downstream {
             let mut e_id: u16 = 0;
@@ -822,10 +798,9 @@ impl Enclave {
                 let idx: usize = fed_id.into();
                 let fed: &Federate = &enclaves[idx];
                 let downstreams = fed.e().downstream();
-                // FIXME:: Replace "as u16" properly.
+                // FIXME: Replace "as u16" properly.
                 e_id = downstreams[i as usize] as u16;
-                // FIXME:: Replace "as usize" properly.
-                println!("    Curr downstream id = {}", e_id);
+                // FIXME: Replace "as usize" properly.
                 if visited[e_id as usize] {
                     continue;
                 }
@@ -837,7 +812,6 @@ impl Enclave {
                 start_time,
                 sent_start_time.clone(),
             );
-            println!("  BEFORE RECURSIVE notify_downstream_advance_grant_if_safe");
             Self::notify_downstream_advance_grant_if_safe(
                 _f_rti.clone(),
                 e_id,
@@ -882,11 +856,6 @@ impl Enclave {
             let fed: &Federate = &locked_rti.enclaves()[idx];
             let mut e = fed.e();
             num_downstream = e.num_downstream();
-            println!(
-                "     [IN logical_tag_complete] [{}] number of downstreams = {}",
-                fed_id,
-                e.num_downstream()
-            );
         }
         for i in 0..num_downstream {
             let mut e_id: u16 = 0;
@@ -896,13 +865,8 @@ impl Enclave {
                 let idx: usize = fed_id.into();
                 let fed: &Federate = &enclaves[idx];
                 let downstreams = fed.e().downstream();
-                // FIXME:: Replace "as u16" properly.
+                // FIXME: Replace "as u16" properly.
                 e_id = downstreams[i as usize] as u16;
-                // FIXME:: Replace "as usize" properly.
-                println!(
-                    "     [IN logical_tag_complete]  Curr downstream id = {}",
-                    e_id
-                );
             }
             // Notify downstream enclave if appropriate.
             Self::notify_advance_grant_if_safe(
@@ -912,7 +876,6 @@ impl Enclave {
                 start_time,
                 sent_start_time.clone(),
             );
-            println!("     [IN logical_tag_complete]  notify_downstream_advance_grant_if_safe");
             let mut visited = vec![false as bool; number_of_enclaves as usize]; // Initializes to 0.
                                                                                 // Notify enclaves downstream of downstream if appropriate.
             Self::notify_downstream_advance_grant_if_safe(

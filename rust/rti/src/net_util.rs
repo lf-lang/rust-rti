@@ -29,15 +29,15 @@ impl NetUtil {
             }
             Err(_) => {
                 println!("RTI failed to read {} from federate {}.", err_msg, fed_id);
-                // TODO: Implement similar to rti_lib.c
+                // TODO: Implement similarly with rti_lib.c
                 std::process::exit(1);
             }
         } {}
-        print!("  [[[ PACKET from {} ]]] = ", fed_id);
-        for x in buffer {
-            print!("{:02X?} ", x);
-        }
-        println!("\n");
+        // print!("  [[[ PACKET from {} ]]] = ", fed_id);
+        // for x in buffer {
+        //     print!("{:02X?} ", x);
+        // }
+        // println!("\n");
         bytes_read
     }
 
@@ -53,11 +53,11 @@ impl NetUtil {
                 false
             }
         } {}
-        print!("  [[[ BUFFER from {} ]]] = ", fed_id);
-        for x in buffer {
-            print!("{:02X?} ", x);
-        }
-        println!("\n");
+        // print!("  [[[ BUFFER from {} ]]] = ", fed_id);
+        // for x in buffer {
+        //     print!("{:02X?} ", x);
+        // }
+        // println!("\n");
         bytes_read
     }
 

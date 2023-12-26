@@ -6,7 +6,6 @@
  * License in [BSD 2-clause](..)
  * @brief ..
  */
-use std::mem;
 
 pub const STARTING_PORT: u16 = 15045;
 

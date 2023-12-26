@@ -87,7 +87,7 @@ pub const MSG_TYPE_NEIGHBOR_STRUCTURE_HEADER_SIZE: i32 = 9;
 
 #[derive(Debug)]
 pub enum MsgType {
-    IGNORE,
+    REJECT,
     FED_IDS,
     TIMESTAMP,
     RESIGN,
@@ -104,6 +104,7 @@ pub enum MsgType {
     P2P_TAGGED_MESSAGE,
     PORT_ABSENT,
     NEIGHBOR_STRUCTURE,
+    IGNORE,
     UDP_PORT,
     ACK,
 }
@@ -111,7 +112,7 @@ pub enum MsgType {
 impl MsgType {
     pub fn to_byte(&self) -> u8 {
         match self {
-            MsgType::IGNORE => 0,
+            MsgType::REJECT => 0,
             MsgType::FED_IDS => 1,
             MsgType::TIMESTAMP => 2,
             MsgType::RESIGN => 4,
@@ -128,6 +129,7 @@ impl MsgType {
             MsgType::P2P_TAGGED_MESSAGE => 17,
             MsgType::PORT_ABSENT => 23,
             MsgType::NEIGHBOR_STRUCTURE => 24,
+            MsgType::IGNORE => 250,
             MsgType::UDP_PORT => 254,
             MsgType::ACK => 255,
         }
@@ -151,6 +153,13 @@ impl MsgType {
     }
 }
 
+/////////////////////////////////////////////
+//// Rejection codes
+
+/**
+ * These codes are sent in a MsgType::REJECT message.
+ * They are limited to one byte (uchar).
+ */
 pub enum ErrType {
     FEDERATION_ID_DOES_NOT_MATCH,
     FEDERATE_ID_IN_USE,
@@ -158,4 +167,17 @@ pub enum ErrType {
     UNEXPECTED_MESSAGE,
     WRONG_SERVER,
     HMAC_DOES_NOT_MATCH,
+}
+
+impl ErrType {
+    pub fn to_byte(&self) -> u8 {
+        match self {
+            ErrType::FEDERATION_ID_DOES_NOT_MATCH => 1,
+            ErrType::FEDERATE_ID_IN_USE => 2,
+            ErrType::FEDERATE_ID_OUT_OF_RANGE => 3,
+            ErrType::UNEXPECTED_MESSAGE => 4,
+            ErrType::WRONG_SERVER => 5,
+            ErrType::HMAC_DOES_NOT_MATCH => 6,
+        }
+    }
 }

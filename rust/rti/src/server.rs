@@ -177,9 +177,8 @@ impl Server {
                                     {
                                         let mut locked_rti = cloned_rti.lock().unwrap();
                                         let mut enclaves = locked_rti.enclaves();
-                                        // FIXME:: Replace "as usize" properly.
+                                        // FIXME: Replace "as usize" properly.
                                         let fed: &mut Federate = &mut enclaves[fed_id as usize];
-                                        println!("[connect_to_federates] FED_ID = {}", fed_id);
                                         let mut enclave = fed.enclave();
                                         if enclave.state() == FedState::NOT_CONNECTED {
                                             break;
@@ -198,7 +197,7 @@ impl Server {
                                             fed_id);
                                         let mut locked_rti = cloned_rti.lock().unwrap();
                                         let mut enclaves = locked_rti.enclaves();
-                                        // FIXME:: Replace "as usize" properly.
+                                        // FIXME: Replace "as usize" properly.
                                         let fed: &mut Federate = &mut enclaves[fed_id as usize];
                                         fed.enclave().set_state(FedState::NOT_CONNECTED);
                                         // FIXME: We need better error handling here, but do not stop execution here.
@@ -361,30 +360,29 @@ impl Server {
                 // of the peer they want to connect to from the RTI.
                 // If the connection is a peer-to-peer connection between two
                 // federates, reject the connection with the WRONG_SERVER error.
-                Self::send_reject(ErrType::WRONG_SERVER);
+                Self::send_reject(stream, ErrType::WRONG_SERVER.to_byte());
             } else {
-                Self::send_reject(ErrType::UNEXPECTED_MESSAGE);
+                Self::send_reject(stream, ErrType::UNEXPECTED_MESSAGE.to_byte());
             }
             println!(
-                "RTI expected a MSG_TYPE_FED_IDS message. Got {} (see net_common.h).",
+                "RTI expected a MsgType::FED_IDS message. Got {} (see net_common.h).",
                 first_buffer[0]
             );
             return -1;
         } else {
             // Received federate ID.
-            // FIXME:: Change from_le_bytes properly.
+            // FIXME: Change from_le_bytes properly.
             let u16_size = mem::size_of::<u16>();
             fed_id = u16::from_le_bytes(first_buffer[1..(1 + u16_size)].try_into().unwrap());
             println!("RTI received federate ID: {}.", fed_id);
 
             // Read the federation ID.  First read the length, which is one byte.
-            // FIXME:: Change from_le_bytes properly.
+            // FIXME: Change from_le_bytes properly.
             let federation_id_length = u8::from_le_bytes(
                 first_buffer[(1 + u16_size)..(1 + u16_size + 1)]
                     .try_into()
                     .unwrap(),
             );
-            println!("federationIdLength: {}", federation_id_length);
             let mut federation_id_buffer = vec![0 as u8; federation_id_length.into()];
             NetUtil::read_from_stream_errexit(
                 stream,
@@ -421,7 +419,7 @@ impl Server {
                     "WARNING: Federate from another federation {} attempted to connect to RTI in federation {}.",
                     federation_id_received, federation_id
                 );
-                Self::send_reject(ErrType::FEDERATION_ID_DOES_NOT_MATCH);
+                Self::send_reject(stream, ErrType::FEDERATION_ID_DOES_NOT_MATCH.to_byte());
                 std::process::exit(1);
             } else {
                 if i32::from(fed_id) >= number_of_enclaves {
@@ -430,7 +428,7 @@ impl Server {
                         "RTI received federate ID {}, which is out of range.",
                         fed_id
                     );
-                    Self::send_reject(ErrType::FEDERATE_ID_OUT_OF_RANGE);
+                    Self::send_reject(stream, ErrType::FEDERATE_ID_OUT_OF_RANGE.to_byte());
                     std::process::exit(1);
                 } else {
                     let mut locked_rti = cloned_rti.lock().unwrap();
@@ -439,7 +437,7 @@ impl Server {
                     let enclave = federate.enclave();
                     if enclave.state() != FedState::NOT_CONNECTED {
                         println!("RTI received duplicate federate ID: {}.", fed_id);
-                        Self::send_reject(ErrType::FEDERATE_ID_IN_USE);
+                        Self::send_reject(stream, ErrType::FEDERATE_ID_IN_USE.to_byte());
                         std::process::exit(1);
                     }
                 }
@@ -461,14 +459,14 @@ impl Server {
                 let enclave: &mut Enclave = federate.enclave();
                 enclave.set_state(FedState::PENDING);
             }
-            println!("RTI responding with MSG_TYPE_ACK to federate {}.", fed_id);
-            // Send an MSG_TYPE_ACK message.
+            println!("RTI responding with MsgType::ACK to federate {}.", fed_id);
+            // Send an MsgType::ACK message.
             let mut ack_message: Vec<u8> = vec![MsgType::ACK.to_byte()];
             match stream.write(&ack_message) {
                 Ok(..) => {}
                 Err(_e) => {
                     println!(
-                        "RTI failed to write MSG_TYPE_ACK message to federate {}.",
+                        "RTI failed to write MsgType::ACK message to federate {}.",
                         fed_id
                     );
                     // TODO: Handle errexit
@@ -481,7 +479,25 @@ impl Server {
         fed_id.into()
     }
 
-    fn send_reject(_err_msg: ErrType) {}
+    fn send_reject(stream: &mut TcpStream, error_code: u8) {
+        println!("RTI sending MsgType::REJECT.");
+        let mut response = vec![0 as u8; 2];
+        response[0] = MsgType::REJECT.to_byte();
+        response[1] = error_code;
+        // NOTE: Ignore errors on this response.
+        match stream.write(&response) {
+            Ok(..) => {}
+            Err(_e) => {
+                println!("RTI failed to write MsgType::REJECT message on the stream.");
+                // TODO: Handle errexit
+                std::process::exit(1);
+            }
+        }
+        // Close the socket.
+        stream
+            .shutdown(Shutdown::Both)
+            .expect("shutdown call failed");
+    }
 
     fn receive_connection_information(
         &mut self,
@@ -506,7 +522,7 @@ impl Server {
 
         if connection_info_header[0] != MsgType::NEIGHBOR_STRUCTURE.to_byte() {
             println!("RTI was expecting a MsgType::NEIGHBOR_STRUCTURE message from federate {}. Got {} instead. Rejecting federate.", fed_id, connection_info_header[0]);
-            Self::send_reject(ErrType::UNEXPECTED_MESSAGE);
+            Self::send_reject(stream, ErrType::UNEXPECTED_MESSAGE.to_byte());
             return false;
         } else {
             let idx: usize = fed_id.into();
@@ -538,7 +554,7 @@ impl Server {
             let mut message_head: usize = 0;
             // First, read the info about upstream federates
             for i in 0..num_upstream {
-                // FIXME:: Change from_le_bytes properly.
+                // FIXME: Change from_le_bytes properly.
                 let upstream_id = u16::from_le_bytes(
                     connection_info_body[message_head..(message_head + mem::size_of::<u16>())]
                         .try_into()
@@ -550,7 +566,7 @@ impl Server {
                     "upstream_id: {}, message_head: {}",
                     upstream_id, message_head
                 );
-                // FIXME:: Change from_le_bytes properly.
+                // FIXME: Change from_le_bytes properly.
                 let upstream_delay = i64::from_le_bytes(
                     connection_info_body[message_head..(message_head + mem::size_of::<i64>())]
                         .try_into()
@@ -566,7 +582,7 @@ impl Server {
 
             // Next, read the info about downstream federates
             for i in 0..num_downstream {
-                // FIXME:: Change from_le_bytes properly.
+                // FIXME: Change from_le_bytes properly.
                 let downstream_id = u16::from_le_bytes(
                     connection_info_body[message_head..(message_head + mem::size_of::<u16>())]
                         .try_into()
@@ -607,8 +623,8 @@ impl Server {
             "MsgType::UDP_PORT message",
         );
         if response[0] != MsgType::UDP_PORT.to_byte() {
-            println!("RTI was expecting a MSG_TYPE_UDP_PORT message from federate {}. Got {} instead. Rejecting federate.", fed_id, response[0]);
-            Self::send_reject(ErrType::UNEXPECTED_MESSAGE);
+            println!("RTI was expecting a MsgType::UDP_PORT message from federate {}. Got {} instead. Rejecting federate.", fed_id, response[0]);
+            Self::send_reject(stream, ErrType::UNEXPECTED_MESSAGE.to_byte());
             return false;
         } else {
             let mut clock_sync_global_status = ClockSyncStat::CLOCK_SYNC_INIT;
@@ -619,7 +635,7 @@ impl Server {
 
             if clock_sync_global_status >= ClockSyncStat::CLOCK_SYNC_INIT {
                 // If no initial clock sync, no need perform initial clock sync.
-                // FIXME:: Change from_le_bytes properly.
+                // FIXME: Change from_le_bytes properly.
                 let federate_UDP_port_number =
                     u16::from_le_bytes(response[1..3].try_into().unwrap());
 
@@ -740,10 +756,6 @@ impl Server {
             let idx: usize = fed_id.into();
             let my_fed: &mut Federate = &mut locked_rti.enclaves()[idx];
             let mut stream = my_fed.stream().as_ref().unwrap();
-            for x in &start_time_buffer {
-                print!("{:02X?} ", x);
-            }
-            println!("\n");
             match stream.write(&start_time_buffer) {
                 Ok(..) => {}
                 Err(_e) => {
@@ -988,7 +1000,6 @@ impl Server {
                 let (lock, condvar) = &*sent_start_time;
                 let mut notified = lock.lock().unwrap();
                 while !*notified {
-                    println!("[{}] [PROVISIONAL] cond wait", fed_id);
                     notified = condvar.wait(notified).unwrap();
                 }
             }
@@ -997,15 +1008,12 @@ impl Server {
             let mut result_buffer = vec![0 as u8; 1];
             result_buffer[0] = message_type;
             result_buffer = vec![result_buffer.clone(), header_buffer, message_buffer].concat();
-            for x in &result_buffer {
-                print!("{:02X?} ", x);
-            }
-            println!("\n");
             match destination_stream.write(&result_buffer) {
                 Ok(..) => {}
                 Err(_e) => {
                     println!("RTI failed to forward message to federate {}.", federate_id);
                     // TODO: Handle errexit
+                    std::process::exit(1);
                 }
             }
         }
@@ -1042,10 +1050,6 @@ impl Server {
                 let idx: usize = federate_id.into();
                 let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
                 let mut destination_stream = fed.stream().as_ref().unwrap();
-                for x in &forward_buffer {
-                    print!("{:02X?} ", x);
-                }
-                println!("\n");
                 match destination_stream.write(&forward_buffer) {
                     Ok(..) => {}
                     Err(_e) => {
@@ -1318,10 +1322,6 @@ impl Server {
                     continue;
                 }
                 let mut stream = f.stream().as_ref().unwrap();
-                for x in &stop_request_buffer {
-                    print!("{:02X?} ", x);
-                }
-                println!("\n");
                 match stream.write(&stop_request_buffer) {
                     Ok(..) => {}
                     Err(_e) => {
@@ -1455,10 +1455,6 @@ impl Server {
                 // FIXME: Handle usize properly.
                 let mut fed: &mut Federate = &mut locked_rti.enclaves()[i as usize];
                 let mut stream = fed.stream().as_ref().unwrap();
-                for x in &outgoing_buffer {
-                    print!("{:02X?} ", x);
-                }
-                println!("\n");
                 match stream.write(&outgoing_buffer) {
                     Ok(..) => {}
                     Err(_e) => {
@@ -1583,7 +1579,7 @@ impl Server {
         );
 
         let u16_size = mem::size_of::<u16>();
-        // FIXME:: Change from_le_bytes properly.
+        // FIXME: Change from_le_bytes properly.
         let reactor_port_id = u16::from_le_bytes(header_buffer[0..(u16_size)].try_into().unwrap());
         let federate_id = u16::from_le_bytes(
             header_buffer[(u16_size)..(u16_size + u16_size)]
@@ -1648,7 +1644,6 @@ impl Server {
                 let (lock, condvar) = &*sent_start_time;
                 let mut notified = lock.lock().unwrap();
                 while !*notified {
-                    println!("[{}] [PROVISIONAL] cond wait", fed_id);
                     notified = condvar.wait(notified).unwrap();
                 }
             }
@@ -1658,10 +1653,6 @@ impl Server {
             let mut result_buffer = vec![0 as u8];
             result_buffer[0] = buffer[0];
             result_buffer = vec![result_buffer.clone(), header_buffer].concat();
-            for x in &result_buffer {
-                print!("{:02X?} ", x);
-            }
-            println!("\n");
             match destination_stream.write(&result_buffer) {
                 Ok(..) => {}
                 Err(_e) => {
