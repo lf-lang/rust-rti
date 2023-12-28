@@ -31,9 +31,9 @@ enum ExecutionMode {
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum FedState {
-    NOT_CONNECTED, // The federate has not connected.
-    GRANTED,       // Most recent MSG_TYPE_NEXT_EVENT_TAG has been granted.
-    PENDING,       // Waiting for upstream federates.
+    NotConnected, // The federate has not connected.
+    Granted,      // Most recent MsgType::NextEventTag has been granted.
+    Pending,      // Waiting for upstream federates.
 }
 
 struct TagAdvanceGrant {
@@ -92,7 +92,7 @@ impl Enclave {
             last_granted: Tag::never_tag(),
             last_provisionally_granted: Tag::never_tag(),
             next_event: Tag::never_tag(),
-            state: FedState::NOT_CONNECTED,
+            state: FedState::NotConnected,
             upstream: Vec::new(),
             upstream_delay: Vec::new(),
             num_upstream: 0,
@@ -170,8 +170,7 @@ impl Enclave {
     }
 
     pub fn set_upstream_id_at(&mut self, upstream_id: u16, idx: usize) {
-        // FIXME: Set upstream_id exactly to the idx position
-        self.upstream.push(upstream_id as i32);
+        self.upstream.insert(idx, upstream_id as i32);
     }
 
     pub fn set_completed(&mut self, completed: Tag) {
@@ -179,8 +178,7 @@ impl Enclave {
     }
 
     pub fn set_upstream_delay_at(&mut self, upstream_delay: tag::Interval, idx: usize) {
-        // FIXME: Set upstream_delay exactly to the idx position
-        self.upstream_delay.push(upstream_delay);
+        self.upstream_delay.insert(idx, upstream_delay);
     }
 
     pub fn set_num_upstream(&mut self, num_upstream: i32) {
@@ -188,8 +186,7 @@ impl Enclave {
     }
 
     pub fn set_downstream_id_at(&mut self, downstream_id: u16, idx: usize) {
-        // FIXME: Set downstream_id exactly to the idx position
-        self.downstream.push(downstream_id as i32);
+        self.downstream.insert(idx, downstream_id as i32);
     }
 
     pub fn set_num_downstream(&mut self, num_downstream: i32) {
@@ -203,15 +200,15 @@ impl Enclave {
         start_time: Instant,
         sent_start_time: Arc<(Mutex<bool>, Condvar)>,
     ) {
-        let mut id = 0;
-        let mut num_upstream = 0;
-        let mut number_of_enclaves = 0;
+        let id;
+        let num_upstream;
+        let number_of_enclaves;
         {
             let mut locked_rti = _f_rti.lock().unwrap();
             number_of_enclaves = locked_rti.number_of_enclaves();
             let idx: usize = fed_id.into();
             let fed: &mut Federate = &mut locked_rti.enclaves()[idx];
-            let mut e = fed.enclave();
+            let e = fed.enclave();
             e.set_next_event(next_event_tag.clone());
 
             id = e.id();
@@ -294,18 +291,18 @@ impl Enclave {
             let mut min_upstream_completed = Tag::forever_tag();
             let mut locked_rti = _f_rti.lock().unwrap();
             let idx: usize = fed_id.into();
-            let mut enclaves = locked_rti.enclaves();
+            let enclaves = locked_rti.enclaves();
             let fed = &enclaves[idx];
             let e = fed.e();
-            let mut upstreams = e.upstream();
-            let mut upstream_delay = e.upstream_delay();
+            let upstreams = e.upstream();
+            let upstream_delay = e.upstream_delay();
             for j in upstreams {
                 // FIXME: Replace "as usize" properly.
                 let delay = upstream_delay[*j as usize];
                 let _fed = &enclaves[*j as usize];
                 let upstream = _fed.e();
                 // Ignore this enclave if it no longer connected.
-                if upstream.state() == FedState::NOT_CONNECTED {
+                if upstream.state() == FedState::NotConnected {
                     continue;
                 }
 
@@ -364,28 +361,26 @@ impl Enclave {
             0
         );
 
-        let mut next_event_tag = Tag::never_tag();
-        let mut last_provisionally_granted_tag = Tag::never_tag();
-        let mut last_granted_tag = Tag::never_tag();
+        let next_event_tag;
+        let last_provisionally_granted_tag;
+        let last_granted_tag;
         {
             let mut locked_rti = _f_rti.lock().unwrap();
             let idx: usize = fed_id.into();
-            let mut enclaves = locked_rti.enclaves();
+            let enclaves = locked_rti.enclaves();
             let fed = &enclaves[idx];
             let e = fed.e();
             next_event_tag = e.next_event();
             last_provisionally_granted_tag = e.last_provisionally_granted();
             last_granted_tag = e.last_granted();
-            let mut upstreams = e.upstream();
-            let mut upstream_delay = e.upstream_delay();
+            let upstreams = e.upstream();
             for j in upstreams {
                 // FIXME: Replace "as usize" properly.
-                let delay = upstream_delay[*j as usize];
                 let _fed = &enclaves[*j as usize];
                 let upstream = _fed.e();
 
                 // Ignore this enclave if it is no longer connected.
-                if upstream.state() == FedState::NOT_CONNECTED {
+                if upstream.state() == FedState::NotConnected {
                     continue;
                 }
 
@@ -426,7 +421,7 @@ impl Enclave {
             }
         }
 
-        let mut t_d = Tag::forever_tag();
+        let t_d;
         if Tag::lf_tag_compare(&t_d_zero_delay, &t_d_nonzero_delay) < 0 {
             t_d = t_d_zero_delay.clone();
         } else {
@@ -489,7 +484,7 @@ impl Enclave {
         start_time: Instant,
     ) -> Tag {
         // FIXME: Replace "as usize" properly.
-        if visited[e.id() as usize] || e.state() == FedState::NOT_CONNECTED {
+        if visited[e.id() as usize] || e.state() == FedState::NotConnected {
             // Enclave has stopped executing or we have visited it before.
             // No point in checking upstream enclaves.
             return candidate.clone();
@@ -548,8 +543,8 @@ impl Enclave {
             let enclaves = locked_rti.enclaves();
             let idx: usize = fed_id.into();
             let fed: &Federate = &enclaves[idx];
-            let mut e = fed.e();
-            if e.state() == FedState::NOT_CONNECTED
+            let e = fed.e();
+            if e.state() == FedState::NotConnected
                 || Tag::lf_tag_compare(&tag, &e.last_granted()) <= 0
                 || Tag::lf_tag_compare(&tag, &e.last_provisionally_granted()) <= 0
             {
@@ -557,7 +552,7 @@ impl Enclave {
             }
             // Need to make sure that the destination federate's thread has already
             // sent the starting MSG_TYPE_TIMESTAMP message.
-            while e.state() == FedState::PENDING {
+            while e.state() == FedState::Pending {
                 // Need to wait here.
                 let (lock, condvar) = &*sent_start_time;
                 let mut notified = lock.lock().unwrap();
@@ -569,7 +564,7 @@ impl Enclave {
         let message_length = 1 + mem::size_of::<i64>() + mem::size_of::<u32>();
         // FIXME: Replace "as usize" properly.
         let mut buffer = vec![0 as u8; message_length as usize];
-        buffer[0] = MsgType::TAG_ADVANCE_GRANT.to_byte();
+        buffer[0] = MsgType::TagAdvanceGrant.to_byte();
         NetUtil::encode_int64(tag.time(), &mut buffer, 1);
         // FIXME: Replace "as i32" properly.
         NetUtil::encode_int32(
@@ -584,10 +579,10 @@ impl Enclave {
         let mut error_occurred = false;
         {
             let mut locked_rti = _f_rti.lock().unwrap();
-            let mut enclaves = locked_rti.enclaves();
+            let enclaves = locked_rti.enclaves();
             // FIXME: Replace "as usize" properly.
             let fed: &Federate = &enclaves[fed_id as usize];
-            let mut e = fed.e();
+            let e = fed.e();
             let mut stream = fed.stream().as_ref().unwrap();
             match stream.write(&buffer) {
                 Ok(bytes_written) => {
@@ -607,9 +602,9 @@ impl Enclave {
             let mut locked_rti = _f_rti.lock().unwrap();
             // FIXME: Replace "as usize" properly.
             let mut_fed: &mut Federate = &mut locked_rti.enclaves()[fed_id as usize];
-            let mut enclave = mut_fed.enclave();
+            let enclave = mut_fed.enclave();
             if error_occurred {
-                enclave.set_state(FedState::NOT_CONNECTED);
+                enclave.set_state(FedState::NotConnected);
                 // FIXME: We need better error handling, but don't stop other execution here.
             } else {
                 enclave.set_last_granted(tag.clone());
@@ -636,8 +631,8 @@ impl Enclave {
             let enclaves = locked_rti.enclaves();
             let idx: usize = fed_id.into();
             let fed: &Federate = &enclaves[idx];
-            let mut e = fed.e();
-            if e.state() == FedState::NOT_CONNECTED
+            let e = fed.e();
+            if e.state() == FedState::NotConnected
                 || Tag::lf_tag_compare(&tag, &e.last_granted()) <= 0
                 || Tag::lf_tag_compare(&tag, &e.last_provisionally_granted()) <= 0
             {
@@ -645,7 +640,7 @@ impl Enclave {
             }
             // Need to make sure that the destination federate's thread has already
             // sent the starting MSG_TYPE_TIMESTAMP message.
-            while e.state() == FedState::PENDING {
+            while e.state() == FedState::Pending {
                 // Need to wait here.
                 let (lock, condvar) = &*sent_start_time;
                 let mut notified = lock.lock().unwrap();
@@ -657,7 +652,7 @@ impl Enclave {
         let message_length = 1 + mem::size_of::<i64>() + mem::size_of::<u32>();
         // FIXME: Replace "as usize" properly.
         let mut buffer = vec![0 as u8; message_length as usize];
-        buffer[0] = MsgType::PROVISIONAL_TAG_ADVANCE_GRANT.to_byte();
+        buffer[0] = MsgType::PropositionalTagAdvanceGrant.to_byte();
         NetUtil::encode_int64(tag.time(), &mut buffer, 1);
         NetUtil::encode_int32(
             tag.microstep().try_into().unwrap(),
@@ -671,10 +666,10 @@ impl Enclave {
         let mut error_occurred = false;
         {
             let mut locked_rti = _f_rti.lock().unwrap();
-            let mut enclaves = locked_rti.enclaves();
+            let enclaves = locked_rti.enclaves();
             // FIXME: Replace "as usize" properly.
             let fed: &Federate = &enclaves[fed_id as usize];
-            let mut e = fed.e();
+            let e = fed.e();
             let mut stream = fed.stream().as_ref().unwrap();
             match stream.write(&buffer) {
                 Ok(bytes_written) => {
@@ -695,9 +690,9 @@ impl Enclave {
             let mut locked_rti = _f_rti.lock().unwrap();
             // FIXME: Replace "as usize" properly.
             let mut_fed: &mut Federate = &mut locked_rti.enclaves()[fed_id as usize];
-            let mut enclave = mut_fed.enclave();
+            let enclave = mut_fed.enclave();
             if error_occurred {
-                enclave.set_state(FedState::NOT_CONNECTED);
+                enclave.set_state(FedState::NotConnected);
                 // FIXME: We need better error handling, but don't stop other execution here.
             }
 
@@ -716,29 +711,30 @@ impl Enclave {
         // NOTE: This could later be replaced with a TNET mechanism once
         // we have an available encoding of causality interfaces.
         // That might be more efficient.
-        let mut num_upstream = 0;
+        let num_upstream;
         {
             let mut locked_rti = _f_rti.lock().unwrap();
             let enclaves = locked_rti.enclaves();
             let idx: usize = fed_id.into();
             let fed: &Federate = &enclaves[idx];
-            let mut e = fed.e();
-            let num_upstream = e.num_upstream();
+            let e = fed.e();
+            num_upstream = e.num_upstream();
         }
         for j in 0..num_upstream {
-            let mut e_id = 0;
-            let mut upstream_next_event = Tag::never_tag();
+            let e_id;
+            let upstream_next_event;
             {
                 let mut locked_rti = _f_rti.lock().unwrap();
                 let enclaves = locked_rti.enclaves();
                 let idx: usize = fed_id.into();
                 let fed: &Federate = &enclaves[idx];
-                let e_id = fed.e().upstream()[j];
+                // FIXME: Replace "as usize" properly.
+                e_id = fed.e().upstream()[j as usize];
                 // FIXME: Replace "as usize" properly.
                 let upstream: &Federate = &enclaves[e_id as usize];
 
                 // Ignore this federate if it has resigned.
-                if upstream.e().state() == NOT_CONNECTED {
+                if upstream.e().state() == NotConnected {
                     continue;
                 }
                 // To handle cycles, need to create a boolean array to keep
@@ -762,7 +758,8 @@ impl Enclave {
             if Tag::lf_tag_compare(&upstream_next_event, &tag) >= 0 {
                 Self::notify_provisional_tag_advance_grant(
                     _f_rti.clone(),
-                    e_id,
+                    // FIXME: Handle unwrap properly.
+                    e_id.try_into().unwrap(),
                     number_of_enclaves,
                     tag.clone(),
                     start_time,
@@ -782,16 +779,16 @@ impl Enclave {
     ) {
         // FIXME: Replace "as usize" properly.
         visited[fed_id as usize] = true;
-        let mut num_downstream = 0;
+        let num_downstream;
         {
             let mut locked_rti = _f_rti.lock().unwrap();
             let idx: usize = fed_id.into();
             let fed: &Federate = &locked_rti.enclaves()[idx];
-            let mut e = fed.e();
+            let e = fed.e();
             num_downstream = e.num_downstream();
         }
         for i in 0..num_downstream {
-            let mut e_id: u16 = 0;
+            let e_id;
             {
                 let mut locked_rti = _f_rti.lock().unwrap();
                 let enclaves = locked_rti.enclaves();
@@ -849,16 +846,16 @@ impl Enclave {
         }
 
         // Check downstream enclaves to see whether they should now be granted a TAG.
-        let mut num_downstream = 0;
+        let num_downstream;
         {
             let mut locked_rti = _f_rti.lock().unwrap();
             let idx: usize = fed_id.into();
             let fed: &Federate = &locked_rti.enclaves()[idx];
-            let mut e = fed.e();
+            let e = fed.e();
             num_downstream = e.num_downstream();
         }
         for i in 0..num_downstream {
-            let mut e_id: u16 = 0;
+            let e_id;
             {
                 let mut locked_rti = _f_rti.lock().unwrap();
                 let enclaves = locked_rti.enclaves();

@@ -6,7 +6,7 @@
  * License in [BSD 2-clause](..)
  * @brief ..
  */
-use std::io::Read;
+use std::io::{Read, Write};
 use std::mem;
 use std::net::TcpStream;
 
@@ -20,13 +20,9 @@ impl NetUtil {
         buffer: &mut Vec<u8>,
         fed_id: u16,
         err_msg: &str,
-    ) -> usize {
-        let mut bytes_read = 0;
+    ) {
         while match stream.read(buffer) {
-            Ok(msg_size) => {
-                bytes_read = msg_size;
-                false
-            }
+            Ok(..) => false,
             Err(_) => {
                 println!("RTI failed to read {} from federate {}.", err_msg, fed_id);
                 // TODO: Implement similarly with rti_lib.c
@@ -38,7 +34,6 @@ impl NetUtil {
         //     print!("{:02X?} ", x);
         // }
         // println!("\n");
-        bytes_read
     }
 
     pub fn read_from_stream(stream: &mut TcpStream, buffer: &mut Vec<u8>, fed_id: u16) -> usize {
@@ -49,7 +44,8 @@ impl NetUtil {
                 false
             }
             Err(_) => {
-                println!("ERROR reading the stream of federate {}.", fed_id);
+                println!("ERROR reading from the stream of federate {}.", fed_id);
+                // TODO: Implement similarly with rti_lib.c
                 false
             }
         } {}
@@ -59,6 +55,36 @@ impl NetUtil {
         // }
         // println!("\n");
         bytes_read
+    }
+
+    pub fn write_to_stream_errexit(
+        mut stream: &TcpStream,
+        buffer: &Vec<u8>,
+        fed_id: u16,
+        err_msg: &str,
+    ) {
+        match stream.write(&buffer) {
+            Ok(..) => {}
+            Err(_e) => {
+                println!("RTI failed to write {} to federate {}.", err_msg, fed_id);
+                // TODO: Implement similarly with rti_lib.c
+                std::process::exit(1);
+            }
+        }
+    }
+
+    pub fn write_to_stream(mut stream: &TcpStream, buffer: &Vec<u8>, fed_id: u16) -> usize {
+        let mut bytes_written = 0;
+        match stream.write(&buffer) {
+            Ok(bytes_size) => {
+                bytes_written = bytes_size;
+            }
+            Err(_e) => {
+                println!("ERROR writing to the stream of federate {}.", fed_id);
+                // TODO: Implement similarly with rti_lib.c
+            }
+        }
+        bytes_written
     }
 
     /**

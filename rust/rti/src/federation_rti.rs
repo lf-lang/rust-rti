@@ -71,17 +71,17 @@ pub struct FederationRTI {
     user_specified_port: u16,
 
     /** The final port number that the TCP socket server ends up using. */
-    final_port_TCP: u16,
+    final_port_tcp: u16,
 
     /** The TCP socket descriptor for the socket server. */
-    socket_descriptor_TCP: i32,
+    socket_descriptor_tcp: i32,
 
     /************* UDP server information *************/
     /** The final port number that the UDP socket server ends up using. */
-    final_port_UDP: u16,
+    final_port_udp: u16,
 
     /** The UDP socket descriptor for the socket server. */
-    socket_descriptor_UDP: i32,
+    socket_descriptor_udp: i32,
 
     /************* Clock synchronization information *************/
     /* Thread performing PTP clock sync sessions periodically. */
@@ -127,11 +127,11 @@ impl FederationRTI {
             // all_federates_exited:false,
             federation_id: String::from("Unidentified Federation"),
             user_specified_port: STARTING_PORT,
-            final_port_TCP: 0,
-            socket_descriptor_TCP: -1,
-            final_port_UDP: u16::MAX,
-            socket_descriptor_UDP: -1,
-            clock_sync_global_status: ClockSyncStat::CLOCK_SYNC_INIT,
+            final_port_tcp: 0,
+            socket_descriptor_tcp: -1,
+            final_port_udp: u16::MAX,
+            socket_descriptor_udp: -1,
+            clock_sync_global_status: ClockSyncStat::ClockSyncInit,
             clock_sync_period_ns: 10 * 1000000,
             clock_sync_exchanges_per_interval: 10,
             authentication_enabled: false,
@@ -172,8 +172,8 @@ impl FederationRTI {
         self.user_specified_port
     }
 
-    pub fn final_port_UDP(&self) -> u16 {
-        self.final_port_UDP
+    pub fn final_port_udp(&self) -> u16 {
+        self.final_port_udp
     }
 
     pub fn clock_sync_global_status(&self) -> ClockSyncStat {

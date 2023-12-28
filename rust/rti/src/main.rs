@@ -10,7 +10,7 @@ use std::env;
 use std::process;
 
 fn main() {
-    let mut _f_rti = rti::initialize_RTI();
+    let mut _f_rti = rti::initialize_rti();
 
     let args: Vec<String> = env::args().collect();
     // dbg!(args);
