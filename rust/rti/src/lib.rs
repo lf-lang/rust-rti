@@ -10,7 +10,12 @@ mod constants;
 mod enclave;
 mod federate;
 mod federation_rti;
+mod message_record {
+    pub mod message_record;
+    pub mod rti_pqueue_support;
+}
 mod net_common;
+mod net_util;
 mod server;
 mod tag;
 
@@ -25,17 +30,17 @@ use server::Server;
 
 #[derive(PartialEq, PartialOrd, Clone)]
 pub enum ClockSyncStat {
-    CLOCK_SYNC_Off,
-    CLOCK_SYNC_INIT,
-    CLOCK_SYNC_ON,
+    ClockSyncOff,
+    ClockSyncInit,
+    ClockSyncOn,
 }
 
 impl ClockSyncStat {
     pub fn to_int(&self) -> i32 {
         match self {
-            ClockSyncStat::CLOCK_SYNC_Off => 0,
-            ClockSyncStat::CLOCK_SYNC_INIT => 1,
-            ClockSyncStat::CLOCK_SYNC_ON => 2,
+            ClockSyncStat::ClockSyncOff => 0,
+            ClockSyncStat::ClockSyncInit => 1,
+            ClockSyncStat::ClockSyncOn => 2,
         }
     }
 }
@@ -89,7 +94,7 @@ pub fn process_args(rti: &mut FederationRTI, argv: &[String]) -> Result<(), &'st
                 return Err("Fail to handle port option");
             }
             idx += 1;
-            let RTI_port: u16;
+            let rti_port: u16;
             match argv[idx].parse::<u16>() {
                 Ok(parsed_value) => {
                     if parsed_value <= 0 || parsed_value >= u16::MAX {
@@ -100,13 +105,13 @@ pub fn process_args(rti: &mut FederationRTI, argv: &[String]) -> Result<(), &'st
                         usage(argc, argv);
                         return Err("Fail to handle number_of_federates option");
                     }
-                    RTI_port = parsed_value;
+                    rti_port = parsed_value;
                 }
                 Err(_e) => {
                     return Err("Fail to parse a string to u16");
                 }
             }
-            rti.set_port(RTI_port.try_into().unwrap());
+            rti.set_port(rti_port.try_into().unwrap());
         } else if arg == "-c" || arg == "--clock_sync" {
             if argc < idx + 2 {
                 println!("--clock-sync needs off|init|on.");
@@ -174,8 +179,8 @@ pub fn initialize_federates(rti: &mut FederationRTI) {
 }
 
 fn initialize_federate(fed: &mut Federate, id: u16) {
-    let mut enclave = Enclave::new();
-    enclave.initialize_enclave();
+    let enclave = fed.enclave();
+    enclave.initialize_enclave(id);
     // TODO: fed.set_in_transit_message_tags();
     // TODO: fed.set_server_ip_addr();
 }
@@ -196,14 +201,14 @@ pub fn start_rti_server(_f_rti: &mut FederationRTI) -> Result<Server, Box<dyn Er
  * @param argv: The list of arguments as a string
  * @return Current position (head) of argv;
  */
-fn process_clock_sync_args(argc: i32, argv: &[String]) -> i32 {
-    // TODO: implement this function
-    0
-}
+// TODO: implement this function
+// fn process_clock_sync_args(_argc: i32, _argv: &[String]) -> i32 {
+//     0
+// }
 
 /**
  * Initialize the _RTI instance.
  */
-pub fn initialize_RTI() -> FederationRTI {
+pub fn initialize_rti() -> FederationRTI {
     FederationRTI::new()
 }

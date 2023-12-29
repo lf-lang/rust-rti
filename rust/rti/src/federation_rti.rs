@@ -14,20 +14,12 @@
  */
 use crate::constants::*;
 use crate::federate::*;
+use crate::tag::Tag;
 use crate::ClockSyncStat;
 
 /**
  * Structure that an RTI instance uses to keep track of its own and its
  * corresponding federates' state.
- * It is a special case of `enclave_rti_t` (declared in enclave.h). Inheritence
- * is mimicked by having the first attributes to be the same as of enclave_rti_t,
- * except that enclaves attribute here is of type `federate_t**`, while it
- * is of type `enclave_t**` in `enclave_rti_t`.
- *     // **************** IMPORTANT!!! ********************
- *     // **   If you make any change to this struct,     **
- *     // **   you MUST also change  enclave_rti_t in     **
- *     // ** (enclave.h)! The change must exactly match.  **
- *     // **************************************************
  */
 pub struct FederationRTI {
     ////////////////// Enclave specific attributes //////////////////
@@ -39,7 +31,7 @@ pub struct FederationRTI {
     number_of_enclaves: i32,
 
     // RTI's decided stop tag for enclaves
-    // TODO: max_stop_tag:Tag,
+    max_stop_tag: Tag,
 
     // Number of enclaves handling stop
     num_enclaves_handling_stop: i32,
@@ -79,17 +71,17 @@ pub struct FederationRTI {
     user_specified_port: u16,
 
     /** The final port number that the TCP socket server ends up using. */
-    final_port_TCP: u16,
+    final_port_tcp: u16,
 
     /** The TCP socket descriptor for the socket server. */
-    socket_descriptor_TCP: i32,
+    socket_descriptor_tcp: i32,
 
     /************* UDP server information *************/
     /** The final port number that the UDP socket server ends up using. */
-    final_port_UDP: u16,
+    final_port_udp: u16,
 
     /** The UDP socket descriptor for the socket server. */
-    socket_descriptor_UDP: i32,
+    socket_descriptor_udp: i32,
 
     /************* Clock synchronization information *************/
     /* Thread performing PTP clock sync sessions periodically. */
@@ -126,7 +118,7 @@ impl FederationRTI {
         FederationRTI {
             enclaves: Vec::new(),
             // enclave_rti related initializations
-            // max_stop_tag: ,
+            max_stop_tag: Tag::never_tag(),
             number_of_enclaves: 0,
             num_enclaves_handling_stop: 0,
             // federation_rti related initializations
@@ -135,11 +127,11 @@ impl FederationRTI {
             // all_federates_exited:false,
             federation_id: String::from("Unidentified Federation"),
             user_specified_port: STARTING_PORT,
-            final_port_TCP: 0,
-            socket_descriptor_TCP: -1,
-            final_port_UDP: u16::MAX,
-            socket_descriptor_UDP: -1,
-            clock_sync_global_status: ClockSyncStat::CLOCK_SYNC_INIT,
+            final_port_tcp: 0,
+            socket_descriptor_tcp: -1,
+            final_port_udp: u16::MAX,
+            socket_descriptor_udp: -1,
+            clock_sync_global_status: ClockSyncStat::ClockSyncInit,
             clock_sync_period_ns: 10 * 1000000,
             clock_sync_exchanges_per_interval: 10,
             authentication_enabled: false,
@@ -152,24 +144,64 @@ impl FederationRTI {
         &mut self.enclaves
     }
 
-    pub fn number_of_enclaves(&mut self) -> i32 {
+    pub fn max_stop_tag(&self) -> Tag {
+        self.max_stop_tag.clone()
+    }
+
+    pub fn number_of_enclaves(&self) -> i32 {
         self.number_of_enclaves
     }
 
-    pub fn federation_id(&mut self) -> String {
+    pub fn num_enclaves_handling_stop(&self) -> i32 {
+        self.num_enclaves_handling_stop
+    }
+
+    pub fn max_start_time(&self) -> i64 {
+        self.max_start_time
+    }
+
+    pub fn num_feds_proposed_start(&self) -> i32 {
+        self.num_feds_proposed_start
+    }
+
+    pub fn federation_id(&self) -> String {
         self.federation_id.clone()
     }
 
-    pub fn user_specified_port(&mut self) -> u16 {
+    pub fn user_specified_port(&self) -> u16 {
         self.user_specified_port
     }
 
-    pub fn clock_sync_global_status(&mut self) -> ClockSyncStat {
+    pub fn final_port_udp(&self) -> u16 {
+        self.final_port_udp
+    }
+
+    pub fn clock_sync_global_status(&self) -> ClockSyncStat {
         self.clock_sync_global_status.clone()
+    }
+
+    pub fn stop_in_progress(&self) -> bool {
+        self.stop_in_progress
+    }
+
+    pub fn set_max_stop_tag(&mut self, max_stop_tag: Tag) {
+        self.max_stop_tag = max_stop_tag.clone();
     }
 
     pub fn set_number_of_enclaves(&mut self, number_of_enclaves: i32) {
         self.number_of_enclaves = number_of_enclaves;
+    }
+
+    pub fn set_num_enclaves_handling_stop(&mut self, num_enclaves_handling_stop: i32) {
+        self.num_enclaves_handling_stop = num_enclaves_handling_stop;
+    }
+
+    pub fn set_max_start_time(&mut self, max_start_time: i64) {
+        self.max_start_time = max_start_time;
+    }
+
+    pub fn set_num_feds_proposed_start(&mut self, num_feds_proposed_start: i32) {
+        self.num_feds_proposed_start = num_feds_proposed_start;
     }
 
     pub fn set_federation_id(&mut self, federation_id: String) {
@@ -178,5 +210,9 @@ impl FederationRTI {
 
     pub fn set_port(&mut self, user_specified_port: u16) {
         self.user_specified_port = user_specified_port;
+    }
+
+    pub fn set_stop_in_progress(&mut self, stop_in_progress: bool) {
+        self.stop_in_progress = stop_in_progress;
     }
 }
