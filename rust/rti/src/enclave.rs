@@ -296,11 +296,10 @@ impl Enclave {
             let e = fed.e();
             let upstreams = e.upstream();
             let upstream_delay = e.upstream_delay();
-            for j in upstreams {
+            for j in 0..upstreams.len() {
+                let delay = upstream_delay[j];
                 // FIXME: Replace "as usize" properly.
-                let delay = upstream_delay[*j as usize];
-                let _fed = &enclaves[*j as usize];
-                let upstream = _fed.e();
+                let upstream = &enclaves[upstreams[j] as usize].e();
                 // Ignore this enclave if it no longer connected.
                 if upstream.state() == FedState::NotConnected {
                     continue;
@@ -374,10 +373,8 @@ impl Enclave {
             last_provisionally_granted_tag = e.last_provisionally_granted();
             last_granted_tag = e.last_granted();
             let upstreams = e.upstream();
-            for j in upstreams {
-                // FIXME: Replace "as usize" properly.
-                let _fed = &enclaves[*j as usize];
-                let upstream = _fed.e();
+            for j in 0..upstreams.len() {
+                let upstream = &enclaves[j].e();
 
                 // Ignore this enclave if it is no longer connected.
                 if upstream.state() == FedState::NotConnected {
@@ -405,11 +402,9 @@ impl Enclave {
                 // Note that "no delay" is encoded as NEVER,
                 // whereas one microstep delay is encoded as 0LL.
                 // FIXME: Replace "as usize" properly.
-                let candidate =
-                    Tag::lf_delay_strict(&upstream_next_event, e.upstream_delay[*j as usize]);
+                let candidate = Tag::lf_delay_strict(&upstream_next_event, e.upstream_delay[j]);
 
-                // FIXME: Replace "as usize" properly.
-                if e.upstream_delay[*j as usize] == Some(i64::MIN) {
+                if e.upstream_delay[j] == Some(i64::MIN) {
                     if Tag::lf_tag_compare(&candidate, &t_d_zero_delay) < 0 {
                         t_d_zero_delay = candidate;
                     }
@@ -507,16 +502,19 @@ impl Enclave {
 
         // Check upstream enclaves to see whether any of them might send
         // an event that would result in an earlier next event.
-        let num_upstream = e.num_upstream();
-        for i in 0..num_upstream {
+        for i in 0..e.upstream().len() {
             // FIXME: Replace "as usize" properly.
-            let e = enclaves[e.upstream()[i as usize] as usize].e();
-            let mut upstream_result =
-                Self::transitive_next_event(enclaves, e, result.clone(), visited, start_time);
+            let upstream = enclaves[e.upstream()[i] as usize].e();
+            let mut upstream_result = Self::transitive_next_event(
+                enclaves,
+                upstream,
+                result.clone(),
+                visited,
+                start_time,
+            );
 
             // Add the "after" delay of the connection to the result.
-            // FIXME: Replace "as usize" properly.
-            upstream_result = Tag::lf_delay_tag(&upstream_result, e.upstream_delay()[i as usize]);
+            upstream_result = Tag::lf_delay_tag(&upstream_result, e.upstream_delay()[i]);
 
             // If the adjusted event time is less than the result so far, update the result.
             if Tag::lf_tag_compare(&upstream_result, &result) < 0 {
