@@ -1,8 +1,8 @@
 /**
  * @file message_record.rs
  * @author Soroush Bateni (soroush@berkeley.edu)
- * @author Chanhee Lee (..)
- * @author Hokeun Kim (hkim501@asu.edu)
+ * @author Chanhee Lee (chanheel@asu.edu)
+ * @author Hokeun Kim (hokeun@asu.edu)
  * @brief Record-keeping for in-transit messages.
  * @version 0.1
  * @date 2022-06-02
