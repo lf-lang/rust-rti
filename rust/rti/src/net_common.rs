@@ -4,8 +4,8 @@
  * @author Soroush Bateni (soroush@utdallas.edu)
  * @author Erling Jellum (erling.r.jellum@ntnu.no)
  * @author Chadlia Jerad (chadlia.jerad@ensi-uma.tn)
- * @author Hokeun Kim (hkim501@asu.edu)
- * @author Chanhee Lee (..)
+ * @author Hokeun Kim (hokeun@asu.edu)
+ * @author Chanhee Lee (chanheel@asu.edu)
  * @copyright (c) 2020-2023, The University of California at Berkeley
  * License in [BSD 2-clause](..)
  * @brief Declarations for runtime infrastructure (RTI) for distributed Lingua Franca programs.

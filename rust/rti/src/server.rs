@@ -1,7 +1,7 @@
 /**
  * @file
- * @author Hokeun Kim (hkim501@asu.edu)
- * @author Chanhee Lee (..)
+ * @author Hokeun Kim (hokeun@asu.edu)
+ * @author Chanhee Lee (chanheel@asu.edu)
  * @copyright (c) 2023, Arizona State University
  * License in [BSD 2-clause](..)
  * @brief ..

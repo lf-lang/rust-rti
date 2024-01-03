@@ -1,8 +1,8 @@
 /**
  * @file
  * @author Soroush Bateni (soroush@berkeley.edu)
- * @author Chanhee Lee (..)
- * @author Hokeun Kim (hkim501@asu.edu)
+ * @author Chanhee Lee (chanheel@asu.edu)
+ * @author Hokeun Kim (hokeun@asu.edu)
  * @copyright (c) 2023, The University of California at Berkeley.
  * License in [BSD 2-clause](..)
  * @brief ..
