@@ -12,15 +12,41 @@ This repository contains the Rust code for Lingua Franca's (LF) Runtime Infrastr
 
 ## Quick Start
 
-TODO
+### Setup Environment (Ubuntu)
+1. Update system to the latest.
+```
+sudo apt update
+```
+2. Install packages for Rust dependents.
+```
+sudo apt install -y curl gcc make build-essential
+```
+3. Install Rust.
+```
+curl https://sh.rustup.rs -sSf | sh
+```
+4. Check Rust installation.
+```
+source ~/.profile
+source ~/.cargo/env
+rustc -V
+```
+You can see `rustc 1.xx.0 (...)`.
 
-- Change the directory into `rust/rti`, then run the `cargo` command for running the RTI, as shown below.
+### Run
+
+1. Download sources from Github
+```
+https://github.com/hokeun/lf-rust-rti.git
+```
+2. Change the directory into `lf-rust-rti/rust/rti`, then run the `cargo run` command with options for running the RTI, as shown below.
 
 ```
-cd rust/rti
+cd lf-rust-rti/rust/rti
 cargo run -- -n 2
 ```
 
 ## Current Status
 
-- Passing federated tests with Rust RTI: SimpleFederated.lf, StopAtShutdown.lf, DistributedCount.lf, DistributedStop.lf, PingPongDistibuted.lf
+- Passing federated tests (lingua-franca/test/C/src/federated/) with Rust RTI: 
+  - DistributedCount.lf, DistributedStop.lf, HelloDistributed.lf, PingPongDistibuted.lf, SimpleFederated.lf, StopAtShutdown.lf
