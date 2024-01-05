@@ -1,3 +1,4 @@
+use crate::message_record::message_record::InTransitMessageRecordQueue;
 /**
  * @file
  * @author Edward A. Lee (eal@berkeley.edu)
@@ -9,11 +10,10 @@
  * @copyright (c) 2020-2023, The University of California at Berkeley
  * License in [BSD 2-clause](..)
  * @brief Declarations for runtime infrastructure (RTI) for distributed Lingua Franca programs.
- * This file extends enclave.h with RTI features that are specific to federations and are not
+ * This file extends rti_common.h with RTI features that are specific to federations and are not
  * used by scheduling enclaves.
  */
-use crate::enclave::*;
-use crate::message_record::message_record::InTransitMessageRecordQueue;
+use crate::rti_common::*;
 
 use std::net::TcpStream;
 use std::option::Option;
@@ -26,8 +26,8 @@ use std::option::Option;
  * denoted with ~>) because those connections do not impose
  * any scheduling constraints.
  */
-pub struct Federate {
-    enclave: Enclave,
+pub struct FederateInfo {
+    enclave: SchedulingNode,
     requested_stop: bool, // Indicates that the federate has requested stop or has replied
     // to a request for stop from the RTI. Used to prevent double-counting
     // a federate when handling lf_request_stop().
@@ -48,10 +48,10 @@ pub struct Federate {
                              // server of the federate.
 }
 
-impl Federate {
-    pub fn new() -> Federate {
-        Federate {
-            enclave: Enclave::new(),
+impl FederateInfo {
+    pub fn new() -> FederateInfo {
+        FederateInfo {
+            enclave: SchedulingNode::new(),
             requested_stop: false,
             stream: None::<TcpStream>,
             clock_synchronization_enabled: true,
@@ -61,11 +61,11 @@ impl Federate {
         }
     }
 
-    pub fn e(&self) -> &Enclave {
+    pub fn e(&self) -> &SchedulingNode {
         &self.enclave
     }
 
-    pub fn enclave(&mut self) -> &mut Enclave {
+    pub fn enclave(&mut self) -> &mut SchedulingNode {
         &mut self.enclave
     }
 

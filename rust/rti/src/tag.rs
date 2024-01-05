@@ -31,7 +31,9 @@ pub type Interval = std::option::Option<i64>;
  */
 pub type Microstep = u32;
 
-const NEVER: i64 = i64::MIN;
+pub const NEVER: i64 = i64::MIN;
+pub const FOREVER: i64 = i64::MAX;
+pub const FOREVER_MICROSTEP: u32 = u32::MAX;
 
 pub struct StartTime {
     start_time: Instant,
@@ -54,7 +56,7 @@ impl StartTime {
 /**
  * A tag is a time, microstep pair.
  */
-#[derive(Hash, Eq, PartialEq, Clone)]
+#[derive(Hash, Eq, PartialEq, Clone, Debug)]
 pub struct Tag {
     time: Instant,
     microstep: Microstep,
@@ -67,17 +69,24 @@ impl Tag {
         Tag { time, microstep }
     }
 
+    pub fn zero_tag() -> Tag {
+        Tag {
+            time: 0,
+            microstep: 0,
+        }
+    }
+
     pub fn never_tag() -> Tag {
         Tag {
-            time: i64::MIN,
+            time: NEVER,
             microstep: 0,
         }
     }
 
     pub fn forever_tag() -> Tag {
         Tag {
-            time: i64::MAX,
-            microstep: u32::MAX,
+            time: FOREVER,
+            microstep: FOREVER_MICROSTEP,
         }
     }
 
@@ -119,13 +128,12 @@ impl Tag {
     }
 
     pub fn lf_delay_tag(tag: &Tag, interval: Interval) -> Tag {
-        if tag.time() == i64::MIN || interval < Some(0) {
-            // println!(
-            //     "tag.time() == i64::MIN || interval < Some(0),  (interval, time) = ({:?},{})",
-            //     interval,
-            //     tag.time()
-            // );
+        if tag.time() == NEVER || interval < Some(0) {
             return tag.clone();
+        }
+        // Note that overflow in C is undefined for signed variables.
+        if tag.time() >= FOREVER - interval.unwrap() {
+            return Tag::forever_tag(); // Overflow.
         }
         let mut result = tag.clone();
         if interval == Some(0) {
@@ -139,43 +147,50 @@ impl Tag {
             //     result.microstep()
             // );
         } else {
-            // Note that overflow in C is undefined for signed variables.
-            if i64::MAX - interval.unwrap() < result.time() {
-                result.set_time(i64::MAX);
-                // println!(
-                //     "i64::MAX - interval.unwrap() < result.time()  (time, microstep) = ({},{})",
-                //     result.time(),
-                //     result.microstep()
-                // );
-            } else {
-                // FIXME: Handle unwrap() properly.
-                result.set_time(result.time() + interval.unwrap());
-                println!("result.set_time(result.time() + interval.unwrap()),  (time, microstep) = ({},{})", result.time(), result.microstep());
-            }
+            // FIXME: Handle unwrap() properly.
+            result.set_time(result.time() + interval.unwrap());
             result.set_microstep(0);
         }
-
         result
     }
 
     pub fn lf_delay_strict(tag: &Tag, interval: Interval) -> Tag {
         let mut result = Self::lf_delay_tag(tag, interval);
         if interval != Some(0)
-            && interval != Some(i64::MIN)
-            && interval != Some(i64::MAX)
-            && result.time() != i64::MIN
-            && result.time() != i64::MAX
+            && interval != Some(NEVER)
+            && interval != Some(FOREVER)
+            && result.time() != NEVER
+            && result.time() != FOREVER
         {
             // println!("interval={:?}, result time={}", interval, result.time());
             result.set_time(result.time() - 1);
             result.set_microstep(u32::MAX);
         }
-
         // println!(
         //     "(time, microstep) = ({},{})",
         //     result.time(),
         //     result.microstep()
         // );
+        result
+    }
+
+    pub fn lf_tag_add(a: &Tag, b: &Tag) -> Tag {
+        if a.time() == NEVER || b.time() == NEVER {
+            return Tag::never_tag();
+        }
+        if a.time() == FOREVER || b.time() == FOREVER {
+            return Tag::forever_tag();
+        }
+        let result = Tag::new(a.time() + b.time(), a.microstep() + b.microstep());
+        if result.microstep() < a.microstep() {
+            return Tag::forever_tag();
+        }
+        if result.time() < a.time() && b.time() > 0 {
+            return Tag::forever_tag();
+        }
+        if result.time() > a.time() && b.time() < 0 {
+            return Tag::never_tag();
+        }
         result
     }
 }

@@ -13,35 +13,15 @@
  * used by scheduling enclaves.
  */
 use crate::constants::*;
-use crate::federate::*;
-use crate::tag::Tag;
 use crate::ClockSyncStat;
+use crate::RTICommon;
 
 /**
  * Structure that an RTI instance uses to keep track of its own and its
  * corresponding federates' state.
  */
-pub struct FederationRTI {
-    ////////////////// Enclave specific attributes //////////////////
-
-    // The federates.
-    enclaves: Vec<Federate>,
-
-    // Number of enclaves
-    number_of_enclaves: i32,
-
-    // RTI's decided stop tag for enclaves
-    max_stop_tag: Tag,
-
-    // Number of enclaves handling stop
-    num_enclaves_handling_stop: i32,
-
-    // Boolean indicating that tracing is enabled.
-    tracing_enabled: bool,
-
-    // Pointer to a tracing object
-    // TODO: trace:Trace,
-    ////////////// Federation only specific attributes //////////////
+pub struct RTIRemote {
+    base: RTICommon,
 
     // Maximum start time seen so far from the federates.
     max_start_time: i64,
@@ -62,7 +42,7 @@ pub struct FederationRTI {
     /**
      * The ID of the federation that this RTI will supervise.
      * This should be overridden with a command-line -i option to ensure
-     * that each federate only joins its assigned federation.
+     * that each federate_info only joins its assigned federation.
      */
     federation_id: String,
 
@@ -113,15 +93,10 @@ pub struct FederationRTI {
     stop_in_progress: bool,
 }
 
-impl FederationRTI {
-    pub fn new() -> FederationRTI {
-        FederationRTI {
-            enclaves: Vec::new(),
-            // enclave_rti related initializations
-            max_stop_tag: Tag::never_tag(),
-            number_of_enclaves: 0,
-            num_enclaves_handling_stop: 0,
-            // federation_rti related initializations
+impl RTIRemote {
+    pub fn new() -> RTIRemote {
+        RTIRemote {
+            base: RTICommon::new(),
             max_start_time: 0,
             num_feds_proposed_start: 0,
             // all_federates_exited:false,
@@ -135,25 +110,12 @@ impl FederationRTI {
             clock_sync_period_ns: 10 * 1000000,
             clock_sync_exchanges_per_interval: 10,
             authentication_enabled: false,
-            tracing_enabled: false,
             stop_in_progress: false,
         }
     }
 
-    pub fn enclaves(&mut self) -> &mut Vec<Federate> {
-        &mut self.enclaves
-    }
-
-    pub fn max_stop_tag(&self) -> Tag {
-        self.max_stop_tag.clone()
-    }
-
-    pub fn number_of_enclaves(&self) -> i32 {
-        self.number_of_enclaves
-    }
-
-    pub fn num_enclaves_handling_stop(&self) -> i32 {
-        self.num_enclaves_handling_stop
+    pub fn base(&mut self) -> &mut RTICommon {
+        &mut self.base
     }
 
     pub fn max_start_time(&self) -> i64 {
@@ -182,18 +144,6 @@ impl FederationRTI {
 
     pub fn stop_in_progress(&self) -> bool {
         self.stop_in_progress
-    }
-
-    pub fn set_max_stop_tag(&mut self, max_stop_tag: Tag) {
-        self.max_stop_tag = max_stop_tag.clone();
-    }
-
-    pub fn set_number_of_enclaves(&mut self, number_of_enclaves: i32) {
-        self.number_of_enclaves = number_of_enclaves;
-    }
-
-    pub fn set_num_enclaves_handling_stop(&mut self, num_enclaves_handling_stop: i32) {
-        self.num_enclaves_handling_stop = num_enclaves_handling_stop;
     }
 
     pub fn set_max_start_time(&mut self, max_start_time: i64) {

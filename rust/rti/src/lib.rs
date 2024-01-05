@@ -7,9 +7,9 @@
  * @brief ..
  */
 mod constants;
-mod enclave;
-mod federate;
-mod federation_rti;
+mod federate_info;
+mod rti_common;
+mod rti_remote;
 mod message_record {
     pub mod message_record;
     pub mod rti_pqueue_support;
@@ -22,9 +22,9 @@ mod tag;
 use std::error::Error;
 
 use crate::constants::*;
-use crate::enclave::*;
-use crate::federate::*;
-use crate::federation_rti::*;
+use crate::federate_info::*;
+use crate::rti_common::*;
+use crate::rti_remote::*;
 
 use server::Server;
 
@@ -45,7 +45,7 @@ impl ClockSyncStat {
     }
 }
 
-pub fn process_args(rti: &mut FederationRTI, argv: &[String]) -> Result<(), &'static str> {
+pub fn process_args(rti: &mut RTIRemote, argv: &[String]) -> Result<(), &'static str> {
     let mut idx = 1;
     let argc = argv.len();
     while idx < argc {
@@ -82,8 +82,12 @@ pub fn process_args(rti: &mut FederationRTI, argv: &[String]) -> Result<(), &'st
                     return Err("Fail to parse a string to i64");
                 }
             };
-            rti.set_number_of_enclaves(num_federates.try_into().unwrap()); // FIXME: panic if the converted value doesn't fit
-            println!("RTI: Number of federates: {}", rti.number_of_enclaves());
+            rti.base()
+                .set_number_of_scheduling_nodes(num_federates.try_into().unwrap()); // FIXME: panic if the converted value doesn't fit
+            println!(
+                "RTI: Number of federates: {}",
+                rti.base().number_of_scheduling_nodes()
+            );
         } else if arg == "-p" || arg == "--port" {
             if argc < idx + 2 {
                 println!(
@@ -130,7 +134,7 @@ pub fn process_args(rti: &mut FederationRTI, argv: &[String]) -> Result<(), &'st
         }
         idx += 1;
     }
-    if rti.number_of_enclaves() == 0 {
+    if rti.base().number_of_scheduling_nodes() == 0 {
         println!("--number_of_federates needs a valid positive integer argument.");
         usage(argc, argv);
         return Err("Invalid number of enclaves");
@@ -167,25 +171,24 @@ fn usage(argc: usize, argv: &[String]) {
     }
 }
 
-pub fn initialize_federates(rti: &mut FederationRTI) {
-    let mut i: u16 = 0;
-    while i32::from(i) < rti.number_of_enclaves() {
-        let mut federate = Federate::new();
-        initialize_federate(&mut federate, i);
-        let enclaves: &mut Vec<Federate> = rti.enclaves();
-        enclaves.push(federate);
-        i += 1;
+pub fn initialize_federates(rti: &mut RTIRemote) {
+    for i in 0..rti.base().number_of_scheduling_nodes() {
+        let mut federate = FederateInfo::new();
+        // FIXME: Handle "as u16" properly.
+        initialize_federate(&mut federate, i as u16);
+        let scheduling_nodes: &mut Vec<FederateInfo> = rti.base().scheduling_nodes();
+        scheduling_nodes.insert(i as usize, federate);
     }
 }
 
-fn initialize_federate(fed: &mut Federate, id: u16) {
+fn initialize_federate(fed: &mut FederateInfo, id: u16) {
     let enclave = fed.enclave();
-    enclave.initialize_enclave(id);
+    enclave.initialize_scheduling_node(id);
     // TODO: fed.set_in_transit_message_tags();
     // TODO: fed.set_server_ip_addr();
 }
 
-pub fn start_rti_server(_f_rti: &mut FederationRTI) -> Result<Server, Box<dyn Error>> {
+pub fn start_rti_server(_f_rti: &mut RTIRemote) -> Result<Server, Box<dyn Error>> {
     // TODO: _lf_initialize_clock();
     Ok(Server::create_server(
         _f_rti.user_specified_port().to_string(),
@@ -209,6 +212,6 @@ pub fn start_rti_server(_f_rti: &mut FederationRTI) -> Result<Server, Box<dyn Er
 /**
  * Initialize the _RTI instance.
  */
-pub fn initialize_rti() -> FederationRTI {
-    FederationRTI::new()
+pub fn initialize_rti() -> RTIRemote {
+    RTIRemote::new()
 }
