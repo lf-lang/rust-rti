@@ -8,5 +8,3 @@
  */
 
 pub const STARTING_PORT: u16 = 15045;
-
-pub const INET_ADDRSTRLEN: usize = 16;
