@@ -213,7 +213,7 @@ impl Tag {
         // );
         result
     }
-
+    
     pub fn lf_tag_add(a: &Tag, b: &Tag) -> Tag {
         if a.time() == NEVER || b.time() == NEVER {
             return Tag::never_tag();
@@ -232,5 +232,17 @@ impl Tag {
             return Tag::never_tag();
         }
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lf_tag_compare() {
+        let t1 = Tag::new(0, 0);
+        let t2 = Tag::new(0, 0);
+        assert_eq!(0, Tag::lf_tag_compare(&t1, &t2))
     }
 }
