@@ -28,6 +28,7 @@ const IS_IN_ZERO_DELAY_CYCLE: i32 = 1;
 const IS_IN_CYCLE: i32 = 2;
 
 /** Mode of execution of a federate. */
+#[derive(PartialEq)]
 enum ExecutionMode {
     FAST,
     REALTIME,
@@ -41,6 +42,7 @@ pub enum SchedulingNodeState {
 }
 
 /** Struct for minimum delays from upstream nodes. */
+#[derive(PartialEq)]
 pub struct MinimumDelay {
     id: i32,        // ID of the upstream node.
     min_delay: Tag, // Minimum delay from upstream.
@@ -69,6 +71,7 @@ impl MinimumDelay {
  * denoted with ~>) because those connections do not impose
  * any scheduling constraints.
  */
+#[derive(PartialEq)]
 pub struct SchedulingNode {
     id: u16,                         // ID of this scheduling node.
     completed: Tag, // The largest logical tag completed by the federate (or NEVER if no LTC has been received).

@@ -213,7 +213,7 @@ impl Tag {
         // );
         result
     }
-    
+
     pub fn lf_tag_add(a: &Tag, b: &Tag) -> Tag {
         if a.time() == NEVER || b.time() == NEVER {
             return Tag::never_tag();
