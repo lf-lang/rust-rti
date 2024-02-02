@@ -243,6 +243,31 @@ mod tests {
     fn test_lf_tag_compare() {
         let t1 = Tag::new(0, 0);
         let t2 = Tag::new(0, 0);
-        assert_eq!(0, Tag::lf_tag_compare(&t1, &t2))
+        let t3 = Tag::new(0, 1);
+        let t4 = Tag::new(1, 0);
+        let t5 = Tag::new(1, 1);
+
+        assert_eq!(0, Tag::lf_tag_compare(&t1, &t2));
+        assert_ne!(1, Tag::lf_tag_compare(&t2, &t3));
+        assert_ne!(1, Tag::lf_tag_compare(&t3, &t4));
+        assert_ne!(1, Tag::lf_tag_compare(&t4, &t5));
+        assert_ne!(-1, Tag::lf_tag_compare(&t5, &t4));
+        assert_ne!(-1, Tag::lf_tag_compare(&t4, &t2));
+    }
+    
+    #[test]
+    fn test_lf_tag_add() {
+        let t1 = Tag::new(NEVER, 43);
+        let t2 = Tag::new(10, 20);
+        let t3 = Tag::new(FOREVER, 50);
+        let t4 = Tag::new(-5, 10);
+
+
+        let fv_tag = Tag::forever_tag();
+        let nv_tag = Tag::never_tag();
+
+        assert_eq!(nv_tag, Tag::lf_tag_add(&t1, &t2));
+        assert_eq!(fv_tag, Tag::lf_tag_add(&t3, &t4));
+        //assert_eq!(fv_tag, Tag::lf_tag_add(&t2, &t4));
     }
 }
