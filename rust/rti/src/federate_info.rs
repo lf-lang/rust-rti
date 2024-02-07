@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn test_new_positive() {
-        let federate_info = FederateInfo::new();
+        let _federate_info = FederateInfo::new();
         // TODO: Check federate_info
         assert!(true);
     }
@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn test_initial_stream_positive() {
         let federate_info = FederateInfo::new();
-        let initial_stream = federate_info.stream();
+        let _initial_stream = federate_info.stream();
         // TODO: Check initial_stream
         assert!(true);
     }
@@ -198,8 +198,8 @@ mod tests {
 
     #[test]
     fn test_set_stream_with_valid_stream_positive() {
-        let mut federate_info = FederateInfo::new();
         // TODO: Enable below
+        // let mut federate_info = FederateInfo::new();
         // match TcpStream::connect("127.0.0.1:8080") {
         //     Ok(valid_stream) => {
         //         federate_info.set_stream(valid_stream);

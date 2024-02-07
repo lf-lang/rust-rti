@@ -49,6 +49,7 @@ impl ClockSyncStat {
 pub fn process_args(rti: &mut RTIRemote, argv: &[String]) -> Result<(), &'static str> {
     let mut idx = 1;
     let argc = argv.len();
+    // println!("argv = {:?}", argv);
     while idx < argc {
         let arg = argv[idx].as_str();
         // println!("arg = {}", arg); // TODO: Remove this debugging code
@@ -102,13 +103,13 @@ pub fn process_args(rti: &mut RTIRemote, argv: &[String]) -> Result<(), &'static
             let rti_port: u16;
             match argv[idx].parse::<u16>() {
                 Ok(parsed_value) => {
-                    if parsed_value <= 0 || parsed_value >= u16::MAX {
+                    if parsed_value >= u16::MAX {
                         println!(
-                            "--port needs a short unsigned integer argument ( > 0 and < {}).",
+                            "--port needs a short unsigned integer argument ( < {}).",
                             u16::MAX
                         );
                         usage(argc, argv);
-                        return Err("Fail to handle number_of_federates option");
+                        return Err("Fail to handle port option");
                     }
                     rti_port = parsed_value;
                 }
@@ -129,7 +130,6 @@ pub fn process_args(rti: &mut RTIRemote, argv: &[String]) -> Result<(), &'static
             rti.base_mut().set_tracing_enabled(true);
         } else if arg == " " {
             // Tolerate spaces
-            continue;
         } else {
             println!("Unrecognized command-line argument: {}", arg);
             usage(argc, argv);
@@ -229,4 +229,250 @@ pub fn start_rti_server(_f_rti: &mut RTIRemote) -> Result<Server, Box<dyn Error>
  */
 pub fn initialize_rti() -> RTIRemote {
     RTIRemote::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_to_int_positive() {
+        assert!(ClockSyncStat::ClockSyncOff.to_int() == 0);
+        assert!(ClockSyncStat::ClockSyncInit.to_int() == 1);
+        assert!(ClockSyncStat::ClockSyncOn.to_int() == 2);
+    }
+
+    #[test]
+    fn test_process_args_option_n_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(String::from("2"));
+        assert!(process_args(&mut rti, &args) == Ok(()));
+    }
+
+    #[test]
+    fn test_process_args_option_number_of_federates_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("--number_of_federates"));
+        args.push(String::from("2"));
+        assert!(process_args(&mut rti, &args) == Ok(()));
+    }
+
+    #[test]
+    fn test_process_args_option_n_empty_value_negative() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        assert!(process_args(&mut rti, &args) == Err("Fail to handle number_of_federates option"));
+    }
+
+    #[test]
+    fn test_process_args_option_n_zero_value_negative() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(String::from("0"));
+        assert!(process_args(&mut rti, &args) == Err("Fail to handle number_of_federates option"));
+    }
+
+    #[test]
+    fn test_process_args_option_n_max_value_negative() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(i64::MAX.to_string());
+        assert!(process_args(&mut rti, &args) == Err("Fail to handle number_of_federates option"));
+    }
+
+    #[test]
+    fn test_process_args_option_n_string_value_negative() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(String::from("invalid_number_of_federates"));
+        assert!(process_args(&mut rti, &args) == Err("Fail to parse a string to i64"));
+    }
+
+    #[test]
+    fn test_process_args_option_i_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-i"));
+        let federation_id = String::from("test_federation_id");
+        args.push(federation_id.clone());
+        args.push(String::from("-n"));
+        args.push(String::from("2"));
+        assert!(process_args(&mut rti, &args) == Ok(()));
+        assert!(rti.federation_id() == federation_id);
+    }
+
+    #[test]
+    fn test_process_args_option_id_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("--id"));
+        let federation_id = String::from("test_federation_id");
+        args.push(federation_id.clone());
+        args.push(String::from("-n"));
+        args.push(String::from("2"));
+        assert!(process_args(&mut rti, &args) == Ok(()));
+        assert!(rti.federation_id() == federation_id);
+    }
+
+    #[test]
+    fn test_process_args_option_i_empty_string_negative() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(String::from("2"));
+        args.push(String::from("--id"));
+        assert!(process_args(&mut rti, &args) == Err("Fail to handle id option"));
+    }
+
+    #[test]
+    fn test_process_args_option_p_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(String::from("2"));
+        args.push(String::from("-p"));
+        args.push(String::from("15045"));
+        assert!(process_args(&mut rti, &args) == Ok(()));
+    }
+
+    #[test]
+    fn test_process_args_option_p_empty_value_negative() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(String::from("2"));
+        args.push(String::from("-p"));
+        assert!(process_args(&mut rti, &args) == Err("Fail to handle port option"));
+    }
+
+    #[test]
+    fn test_process_args_option_p_max_value_negative() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(String::from("2"));
+        args.push(String::from("-p"));
+        args.push(u16::MAX.to_string());
+        assert!(process_args(&mut rti, &args) == Err("Fail to handle port option"));
+    }
+
+    #[test]
+    fn test_process_args_option_p_string_value_negative() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(String::from("2"));
+        args.push(String::from("-p"));
+        args.push(String::from("port"));
+        assert!(process_args(&mut rti, &args) == Err("Fail to parse a string to u16"));
+    }
+
+    #[test]
+    fn test_process_args_option_c_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(String::from("2"));
+        args.push(String::from("-c"));
+        args.push(String::from("off"));
+        assert!(process_args(&mut rti, &args) == Ok(()));
+    }
+
+    #[test]
+    fn test_process_args_option_clock_sync_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(String::from("2"));
+        args.push(String::from("--clock_sync"));
+        args.push(String::from("off"));
+        assert!(process_args(&mut rti, &args) == Ok(()));
+    }
+
+    #[test]
+    fn test_process_args_option_c_empty_value_negative() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(String::from("2"));
+        args.push(String::from("-c"));
+        assert!(process_args(&mut rti, &args) == Err("Fail to handle clock_sync option"));
+    }
+
+    #[test]
+    fn test_process_args_space_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from(" "));
+        args.push(String::from("-n"));
+        args.push(String::from("2"));
+        assert!(process_args(&mut rti, &args) == Ok(()));
+    }
+
+    #[test]
+    fn test_process_args_unrecognized_command_line_negative() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(String::from("2"));
+        args.push(String::from("unrecognized_command-line_argument"));
+        assert!(process_args(&mut rti, &args) == Err("Invalid argument"));
+    }
+
+    #[test]
+    fn test_usage_positive() {
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(String::from("2"));
+        usage(args.len(), &args);
+    }
+
+    #[test]
+    fn test_initialize_federates_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(String::from("2"));
+        assert!(process_args(&mut rti, &args) == Ok(()));
+        initialize_federates(&mut rti);
+    }
+
+    #[test]
+    fn test_start_rti_server_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(String::from("2"));
+        assert!(process_args(&mut rti, &args) == Ok(()));
+        initialize_federates(&mut rti);
+        let _ = start_rti_server(&mut rti);
+    }
 }
