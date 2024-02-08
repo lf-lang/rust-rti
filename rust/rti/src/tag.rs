@@ -241,7 +241,6 @@ mod tests {
 
     #[test]
     fn test_lf_tag_compare() {
-        
         let t1 = Tag::new(0, 0);
         let t2 = Tag::new(0, 0);
         let t3 = Tag::new(0, 1);
@@ -258,7 +257,6 @@ mod tests {
 
     #[test]
     fn test_lf_tag_add() {
-        
         let t1 = Tag::new(NEVER, 43);
         let t2 = Tag::new(10, 4294967295);
         let t3 = Tag::new(FOREVER, 50);
@@ -275,7 +273,7 @@ mod tests {
         /* Tried to do an overflow which should result in the condition:
          * result.microstep() < a.microstep() which should ultimately return
          * the forever_tag. However the test seems to fail.
-         * 
+         *
          * It seems Rust takes care of overflow, which can be disabled, and
          * the test can be done in those conditions.
          *
@@ -289,7 +287,6 @@ mod tests {
 
     #[test]
     fn test_lf_delay_strict() {
-        
         let t1 = Tag::new(NEVER, 5);
         let int_1: Interval = Some(10);
         let t2 = Tag::new(20, 5);
@@ -308,26 +305,25 @@ mod tests {
         assert_eq!(t1, Tag::lf_delay_tag(&t1, int_1));
         assert_eq!(t2, Tag::lf_delay_tag(&t2, int_2));
         assert_eq!(fv_tag, Tag::lf_delay_tag(&t2, int_3));
-        
+
         //NOTE: Need to double check
 
-        assert_eq!(t2, Tag::lf_delay_tag(&t2, int_4)); 
-        
+        assert_eq!(t2, Tag::lf_delay_tag(&t2, int_4));
+
         r2.set_time(t2.time() + int_5.unwrap());
         r2.set_microstep(0);
-       
+
         //NOTE: Need to confirm this case
         assert_eq!(r2, Tag::lf_delay_tag(&t2, int_5));
-        
+
         r1.set_time(t2.time());
         r1.set_microstep(t2.microstep() + 1);
-        
+
         assert_eq!(r1, Tag::lf_delay_tag(&t2, int_6));
     }
 
     #[test]
     fn test_set_microstep() {
-        
         let mut t1 = Tag::new(0, 0);
         let t2 = Tag::new(0, 2);
 
@@ -337,7 +333,6 @@ mod tests {
 
     #[test]
     fn test_set_time() {
-        
         let mut t1 = Tag::new(0, 3);
         let t2 = Tag::new(18, 3);
 
@@ -347,8 +342,7 @@ mod tests {
 
     #[test]
     fn test_time() {
-        
-        let mut time1:i64 = 67;
+        let mut time1: i64 = 67;
         let tag1 = Tag::new(18, 3);
 
         time1 = tag1.time();
@@ -358,8 +352,7 @@ mod tests {
 
     #[test]
     fn test_microstep() {
-        
-        let mut step1:u32 = 5;
+        let mut step1: u32 = 5;
         let tag1 = Tag::new(18, 3);
 
         step1 = tag1.microstep();
@@ -369,7 +362,6 @@ mod tests {
 
     #[test]
     fn test_forever_tag() {
-        
         let t1 = Tag::new(FOREVER, FOREVER_MICROSTEP);
         let fv_tag = Tag::forever_tag();
 
@@ -378,7 +370,6 @@ mod tests {
 
     #[test]
     fn test_zero_tag() {
-        
         let t1 = Tag::new(0, 0);
         let zero_tag = Tag::zero_tag();
 
@@ -387,7 +378,6 @@ mod tests {
 
     #[test]
     fn test_never_tag() {
-        
         let t1 = Tag::new(NEVER, 0);
         let nv_tag = Tag::never_tag();
 
