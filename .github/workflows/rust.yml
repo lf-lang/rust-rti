@@ -25,4 +25,12 @@ jobs:
       - uses: actions/checkout@v3
       - name: Unit tests
         run: cd rust/rti; cargo test
-    
+
+  # fetch-lf:
+  #   uses: chanijjani/lingua-franca/.github/workflows/extract-ref.yml@master
+  #   with:
+  #     file: 'lingua-franca-ref.txt'
+
+  lf-default:
+    # needs: fetch-lf
+    uses: chanijjani/lingua-franca/.github/workflows/c-tests-with-rust-rti.yml@integration_tests_with_rust_rti
