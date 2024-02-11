@@ -15,7 +15,7 @@ use crate::tag::Tag;
 pub struct NetUtil {}
 
 impl NetUtil {
-    pub fn read_from_stream_errexit(
+    pub fn read_from_socket_fail_on_error(
         stream: &mut TcpStream,
         buffer: &mut Vec<u8>,
         fed_id: u16,
@@ -57,7 +57,7 @@ impl NetUtil {
         bytes_read
     }
 
-    pub fn write_to_stream_errexit(
+    pub fn write_to_socket_fail_on_error(
         mut stream: &TcpStream,
         buffer: &Vec<u8>,
         fed_id: u16,

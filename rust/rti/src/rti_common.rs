@@ -8,11 +8,10 @@ use crate::net_util::NetUtil;
  * @author Chadlia Jerad (chadlia.jerad@ensi-uma.tn)
  * @author Chanhee Lee (chanheel@asu.edu)
  * @author Hokeun Kim (hokeun@asu.edu)
- * @copyright (c) 2020-2024, The University of California at Berkeley
- * License in [BSD 2-clause](..)
- * @brief Declarations for runtime infrastructure (RTI) for distributed Lingua Franca programs.
- * This file extends enclave.h with RTI features that are specific to federations and are not
- * used by scheduling enclaves.
+ * @copyright (c) 2020-2023, The University of California at Berkeley
+ * License in [BSD 2-clause](https://github.com/lf-lang/reactor-c/blob/main/LICENSE.md)
+ * @brief Common declarations for runtime infrastructure (RTI) for scheduling enclaves
+ * and distributed Lingua Franca programs.
  */
 use crate::rti_remote::RTIRemote;
 use crate::tag;
@@ -223,6 +222,13 @@ impl SchedulingNode {
         self.flags = flags;
     }
 
+    /**
+     * @brief Update the next event tag of an scheduling node.
+     *
+     * This will notify downstream scheduling nodes with a TAG or PTAG if appropriate.
+     *
+     * This function assumes that the caller is holding the RTI mutex.
+     */
     pub fn update_scheduling_node_next_event_tag_locked(
         _f_rti: Arc<Mutex<RTIRemote>>,
         fed_id: u16,
@@ -259,6 +265,12 @@ impl SchedulingNode {
                 start_time,
                 sent_start_time.clone(),
             );
+        } else {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let idx: usize = fed_id.into();
+            let fed = &mut locked_rti.base().scheduling_nodes()[idx];
+            let e = fed.enclave();
+            e.set_last_granted(next_event_tag.clone());
         }
         // Check downstream enclaves to see whether they should now be granted a TAG.
         // To handle cycles, need to create a boolean array to keep
@@ -274,6 +286,13 @@ impl SchedulingNode {
         );
     }
 
+    /**
+     * @brief Either send to a federate or unblock an enclave to give it a tag.
+     * This function requires two different implementations, one for enclaves
+     * and one for federates.
+     *
+     * This assumes the caller holds the RTI mutex.
+     */
     fn notify_advance_grant_if_safe(
         _f_rti: Arc<Mutex<RTIRemote>>,
         fed_id: u16,
@@ -304,6 +323,32 @@ impl SchedulingNode {
         }
     }
 
+    /**
+     * Determine whether the specified scheduling node is eligible for a tag advance grant,
+     * (TAG) and, if so, return the details. This is called upon receiving a LTC, NET
+     * or resign from an upstream node.
+     *
+     * This function calculates the minimum M over
+     * all upstream scheduling nodes of the "after" delay plus the most recently
+     * received LTC from that node. If M is greater than the
+     * most recent TAG to e or greater than or equal to the most
+     * recent PTAG, then return TAG(M).
+     *
+     * If the above conditions do not result in returning a TAG, then find the
+     * minimum M of the earliest possible future message from upstream federates.
+     * This is calculated by transitively looking at the most recently received
+     * NET calls from upstream scheduling nodes.
+     * If M is greater than the NET of e or the most recent PTAG to e, then
+     * return a TAG with tag equal to the NET of e or the PTAG.
+     * If M is equal to the NET of the federate, then return PTAG(M).
+     *
+     * This should be called whenever an immediately upstream federate sends to
+     * the RTI an LTC (latest tag complete), or when a transitive upstream
+     * federate sends a NET (Next Event Tag) message.
+     * It is also called when an upstream federate resigns from the federation.
+     *
+     * This function assumes that the caller holds the RTI mutex.
+     */
     fn tag_advance_grant_if_safe(
         _f_rti: Arc<Mutex<RTIRemote>>,
         fed_id: u16,
@@ -348,7 +393,7 @@ impl SchedulingNode {
                 );
             } else {
                 println!(
-                    "Minimum upstream LTC for federate/enclave {} is ({},{}) (adjusted by after delay).\nWARNING!!! min_upstream_completed.time() < start_time",
+                    "[tag_advance_grant_if_safe:396, federate/enclave {}]   WARNING!!! min_upstream_completed.time({}) < start_time({})",
                     e.id(),
                     // FIXME: Check the below calculation
                     min_upstream_completed.time(), // - start_time,
@@ -372,6 +417,9 @@ impl SchedulingNode {
         // or federate (which includes any after delays on the connections).
         let t_d =
             Self::earliest_future_incoming_message_tag(_f_rti.clone(), fed_id as u16, start_time);
+        // Non-ZDC version of the above. This is a tag that must be strictly greater than
+        // that of the next granted PTAG.
+        let t_d_strict = Self::eimt_strict(_f_rti.clone(), fed_id as u16, start_time);
 
         if t_d.time() >= start_time {
             println!(
@@ -381,16 +429,19 @@ impl SchedulingNode {
                 t_d.microstep()
             );
         } else {
-            println!("   t_d.time < start_time   ({},{}", t_d.time(), start_time);
+            println!(
+                "[tag_advance_grant_if_safe:432]   WARNING!!! t_d.time < start_time   ({},{}",
+                // FIXME: Check the below calculation
+                t_d.time(), // - start_time,
+                start_time
+            );
         }
 
         // Given an EIMT (earliest incoming message tag) there are these possible scenarios:
         //  1) The EIMT is greater than the NET we want to advance to. Grant a TAG.
-        //  2) The EIMT is equal to the NET and the federate is part of a zero-delay cycle (ZDC).
-        //  3) The EIMT is equal to the NET and the federate is not part of a ZDC.
-        //  4) The EIMT is less than the NET
-        // In (1) we can give a TAG to NET. In (2) we can give a PTAG.
-        // In (3) and (4), we wait for further updates from upstream federates.
+        //  2) The EIMT is equal to the NET and the strict EIMT is greater than the net
+        //     and the federate is part of a zero-delay cycle (ZDC).  Grant a PTAG.
+        //  3) Otherwise, grant nothing and wait for further updates.
         let next_event;
         let last_provisionally_granted;
         let last_granted;
@@ -406,6 +457,7 @@ impl SchedulingNode {
 
         // Scenario (1) above
         if Tag::lf_tag_compare(&t_d, &next_event) > 0                      // EIMT greater than NET
+            && Tag::lf_tag_compare(&next_event, &Tag::never_tag()) > 0      // NET is not NEVER_TAG
             && Tag::lf_tag_compare(&t_d, &last_provisionally_granted) >= 0  // The grant is not redundant
                                                                         // (equal is important to override any previous
                                                                         // PTAGs).
@@ -414,31 +466,232 @@ impl SchedulingNode {
         {
             // No upstream node can send events that will be received with a tag less than or equal to
             // e->next_event, so it is safe to send a TAG.
-            println!("RTI: Earliest upstream message time for fed/encl {} is ({},{})(adjusted by after delay). Granting tag advance (TAG) for ({},{})",
+            if next_event.time() >= start_time {
+                println!("RTI: Earliest upstream message time for fed/encl {} is ({},{})(adjusted by after delay). Granting tag advance (TAG) for ({},{})",
                     fed_id,
                     t_d.time() - start_time, t_d.microstep(),
-                    next_event.time(), // TODO: - start_time,
+                    next_event.time() - start_time,
                     next_event.microstep());
+            } else {
+                println!("[tag_advance_grant_if_safe:471]   WARNING!!! t_d.time({}) or next_event.time({}) < start_time({})", 
+                // FIXME: Check the below calculation
+                t_d.time(), // - start_time,
+                next_event.time(), // - start_time,
+                start_time);
+            }
             result.set_tag(next_event);
         } else if
-        // Scenario (2) or (3) above
-        Tag::lf_tag_compare(&t_d, &next_event) == 0                     // EIMT equal to NET
-            && Self::is_in_zero_delay_cycle(_f_rti.clone(), fed_id)                                // The node is part of a ZDC
+        // Scenario (2) above
+        Tag::lf_tag_compare(&t_d, &next_event) == 0                         // EIMT equal to NET
+            && Self::is_in_zero_delay_cycle(_f_rti.clone(), fed_id)         // The node is part of a ZDC
+            && Tag::lf_tag_compare(&t_d_strict, &next_event) > 0             // The strict EIMT is greater than the NET
             && Tag::lf_tag_compare(&t_d, &last_provisionally_granted) > 0   // The grant is not redundant
             // The grant is not redundant.
             && Tag::lf_tag_compare(&t_d, &last_granted) > 0
         {
             // Some upstream node may send an event that has the same tag as this node's next event,
             // so we can only grant a PTAG.
-            println!("RTI: Earliest upstream message time for fed/encl {} is ({},{})(adjusted by after delay). Granting provisional tag advance (PTAG) for ({},{})",
+            if t_d.time() >= start_time && next_event.time() >= start_time {
+                println!("RTI: Earliest upstream message time for fed/encl {} is ({},{})(adjusted by after delay). Granting provisional tag advance (PTAG) for ({},{})",
                 fed_id,
                 t_d.time() - start_time, t_d.microstep(),
                 next_event.time() - start_time,
                 next_event.microstep());
+            } else {
+                println!("[tag_advance_grant_if_safe:492]   WARNING!!!   next_event.time({}) or t_d.time({}) < start_time({})",
+                // FIXME: Check the below calculation
+                t_d.time(), // - start_time,
+                next_event.time(), // - start_time,
+                start_time);
+            }
             result.set_tag(next_event);
             result.set_provisional(true);
         }
         result
+    }
+
+    /**
+     * Given a node (enclave or federate), find the tag of the earliest possible incoming
+     * message (EIMT) from upstream enclaves or federates, which will be the smallest upstream NET
+     * plus the least delay. This could be NEVER_TAG if the RTI has not seen a NET from some
+     * upstream node.
+     */
+    fn earliest_future_incoming_message_tag(
+        _f_rti: Arc<Mutex<RTIRemote>>,
+        fed_id: u16,
+        start_time: Instant,
+    ) -> Tag {
+        // First, we need to find the shortest path (minimum delay) path to each upstream node
+        // and then find the minimum of the node's recorded NET plus the minimum path delay.
+        // Update the shortest paths, if necessary.
+        let is_first_time;
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let scheduling_nodes = locked_rti.base().scheduling_nodes();
+            let idx: usize = fed_id.into();
+            is_first_time = scheduling_nodes[idx].enclave().min_delays().len() == 0;
+        }
+        if is_first_time {
+            Self::update_min_delays_upstream(_f_rti.clone(), fed_id);
+        }
+
+        // Next, find the tag of the earliest possible incoming message from upstream enclaves or
+        // federates, which will be the smallest upstream NET plus the least delay.
+        // This could be NEVER_TAG if the RTI has not seen a NET from some upstream node.
+        let mut t_d = Tag::forever_tag();
+        let num_min_delays;
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let enclaves = locked_rti.base().scheduling_nodes();
+            let idx: usize = fed_id.into();
+            let fed: &FederateInfo = &enclaves[idx];
+            let e = fed.e();
+            num_min_delays = e.num_min_delays();
+        }
+        for i in 0..num_min_delays {
+            let upstream_id;
+            {
+                let mut locked_rti = _f_rti.lock().unwrap();
+                let enclaves = locked_rti.base().scheduling_nodes();
+                let idx: usize = fed_id.into();
+                let fed: &FederateInfo = &enclaves[idx];
+                let e = fed.e();
+                upstream_id = e.min_delays[i as usize].id() as usize;
+            }
+            let upstream_next_event;
+            {
+                // Node e->min_delays[i].id is upstream of e with min delay e->min_delays[i].min_delay.
+                let mut locked_rti = _f_rti.lock().unwrap();
+                let enclaves = locked_rti.base().scheduling_nodes();
+                let fed: &mut FederateInfo = &mut enclaves[upstream_id];
+                let upstream = fed.enclave();
+                // If we haven't heard from the upstream node, then assume it can send an event at the start time.
+                upstream_next_event = upstream.next_event();
+                if Tag::lf_tag_compare(&upstream_next_event, &Tag::never_tag()) == 0 {
+                    let start_tag = Tag::new(start_time, 0);
+                    upstream.set_next_event(start_tag);
+                }
+            }
+            // The min_delay here is a tag_t, not an interval_t because it may account for more than
+            // one connection. No delay at all is represented by (0,0). A delay of 0 is represented
+            // by (0,1). If the time part of the delay is greater than 0, then we want to ignore
+            // the microstep in upstream.next_event() because that microstep will have been lost.
+            // Otherwise, we want preserve it and add to it. This is handled by lf_tag_add().
+            let min_delay;
+            let earliest_tag_from_upstream;
+            {
+                let mut locked_rti = _f_rti.lock().unwrap();
+                let enclaves = locked_rti.base().scheduling_nodes();
+                let idx: usize = fed_id.into();
+                let fed: &mut FederateInfo = &mut enclaves[idx];
+                let e = fed.enclave();
+                min_delay = e.min_delays()[i as usize].min_delay();
+                earliest_tag_from_upstream = Tag::lf_tag_add(&upstream_next_event, &min_delay);
+                /* Following debug message is too verbose for normal use:
+                if earliest_tag_from_upstream.time() >= start_time {
+                    println!("RTI: Earliest next event upstream of fed/encl {} at fed/encl {} has tag ({},{}).",
+                        fed_id,
+                        upstream_id,
+                        earliest_tag_from_upstream.time() - start_time,
+                        earliest_tag_from_upstream.microstep());
+                } else {
+                    println!(
+                        "    earliest_tag_from_upstream.time() < start_time,   ({},{})",
+                        earliest_tag_from_upstream.time(),
+                        start_time
+                    );
+                }
+                */
+            }
+            if Tag::lf_tag_compare(&earliest_tag_from_upstream, &t_d) < 0 {
+                t_d = earliest_tag_from_upstream.clone();
+            }
+        }
+        t_d
+    }
+
+    /**
+     * For the given scheduling node (enclave or federate), if necessary, update the `min_delays`,
+     * `num_min_delays`, and the fields that indicate cycles.  These fields will be
+     * updated only if they have not been previously updated or if invalidate_min_delays_upstream
+     * has been called since they were last updated.
+     */
+    fn update_min_delays_upstream(_f_rti: Arc<Mutex<RTIRemote>>, node_idx: u16) {
+        let num_min_delays;
+        let number_of_scheduling_nodes;
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let scheduling_nodes = locked_rti.base().scheduling_nodes();
+            let idx: usize = node_idx.into();
+            num_min_delays = scheduling_nodes[idx].enclave().min_delays().len();
+            number_of_scheduling_nodes = locked_rti.base().number_of_scheduling_nodes();
+        }
+        // Check whether cached result is valid.
+        if num_min_delays == 0 {
+            // This is not Dijkstra's algorithm, but rather one optimized for sparse upstream nodes.
+            // There must be a name for this algorithm.
+
+            // Array of results on the stack:
+            let mut path_delays = Vec::new();
+            // This will be the number of non-FOREVER entries put into path_delays.
+            let mut count: u64 = 0;
+
+            for _i in 0..number_of_scheduling_nodes {
+                path_delays.push(Tag::forever_tag());
+            }
+            // FIXME:: Handle "as i32" properly.
+            Self::_update_min_delays_upstream(
+                _f_rti.clone(),
+                node_idx as i32,
+                -1,
+                &mut path_delays,
+                &mut count,
+            );
+
+            // Put the results onto the node's struct.
+            {
+                let mut locked_rti = _f_rti.lock().unwrap();
+                let scheduling_nodes = locked_rti.base().scheduling_nodes();
+                let idx: usize = node_idx.into();
+                let node = scheduling_nodes[idx].enclave();
+                node.set_num_min_delays(count);
+                node.set_min_delays(Vec::new());
+                println!(
+                    "++++ Node {}(is in ZDC: {}),  COUNT = {},  flags = {},  number_of_scheduling_nodes = {}\n",
+                    node_idx,
+                    node.flags() & IS_IN_ZERO_DELAY_CYCLE, count, node.flags(), number_of_scheduling_nodes
+                );
+                let mut k = 0;
+                for i in 0..number_of_scheduling_nodes {
+                    if Tag::lf_tag_compare(&path_delays[i as usize], &Tag::forever_tag()) < 0 {
+                        // Node i is upstream.
+                        if k >= count {
+                            println!(
+                                "Internal error! Count of upstream nodes {} for node {} is wrong!",
+                                count, i
+                            );
+                            std::process::exit(1);
+                        }
+                        let min_delay = MinimumDelay::new(i, path_delays[i as usize].clone());
+                        if node.min_delays().len() > k as usize {
+                            let _ =
+                                std::mem::replace(&mut node.min_delays()[k as usize], min_delay);
+                        } else {
+                            node.min_delays().insert(k as usize, min_delay);
+                        }
+                        k = k + 1;
+                        // N^2 debug statement could be a problem with large benchmarks.
+                        // println!(
+                        //     "++++ Node {} is upstream with delay ({},{}),  k = {}",
+                        //     i,
+                        //     path_delays[i as usize].time(),
+                        //     path_delays[i as usize].microstep(),
+                        //     k
+                        // );
+                    }
+                }
+            }
+        }
     }
 
     fn is_in_zero_delay_cycle(_f_rti: Arc<Mutex<RTIRemote>>, fed_id: u16) -> bool {
@@ -463,6 +716,103 @@ impl SchedulingNode {
         (flags & IS_IN_ZERO_DELAY_CYCLE) != 0
     }
 
+    /**
+     * Given a node (enclave or federate), find the earliest incoming message tag (EIMT) from
+     * any immediately upstream node that is not part of zero-delay cycle (ZDC).
+     * These tags are treated strictly by the RTI when deciding whether to grant a PTAG.
+     * Since the upstream node is not part of a ZDC, there is no need to block on the input
+     * from that node since we can simply wait for it to complete its tag without chance of
+     * introducing a deadlock.  This will return FOREVER_TAG if there are no non-ZDC upstream nodes.
+     * @return The earliest possible incoming message tag from a non-ZDC upstream node.
+     */
+    fn eimt_strict(_f_rti: Arc<Mutex<RTIRemote>>, fed_id: u16, start_time: Instant) -> Tag {
+        // Find the tag of the earliest possible incoming message from immediately upstream
+        // enclaves or federates that are not part of a zero-delay cycle.
+        // This will be the smallest upstream NET plus the least delay.
+        // This could be NEVER_TAG if the RTI has not seen a NET from some upstream node.
+        let num_upstream;
+        {
+            let mut locked_rti = _f_rti.lock().unwrap();
+            let scheduling_nodes = locked_rti.base().scheduling_nodes();
+            let idx: usize = fed_id.into();
+            let e = scheduling_nodes[idx].e();
+            num_upstream = e.num_upstream();
+        }
+        let mut t_d = Tag::forever_tag();
+        for i in 0..num_upstream {
+            let upstream_id;
+            let upstream_delay;
+            let next_event;
+            {
+                let mut locked_rti = _f_rti.lock().unwrap();
+                let scheduling_nodes = locked_rti.base().scheduling_nodes();
+                let idx: usize = fed_id.into();
+                let e = scheduling_nodes[idx].e();
+                // let upstreams = e.upstream();
+                // let upstream_id = upstreams[i] as usize;
+                upstream_id = e.upstream()[i as usize] as usize;
+                upstream_delay = e.upstream_delay()[i as usize];
+                next_event = e.next_event();
+            }
+            // Skip this node if it is part of a zero-delay cycle.
+            if Self::is_in_zero_delay_cycle(_f_rti.clone(), upstream_id as u16) {
+                continue;
+            }
+            // If we haven't heard from the upstream node, then assume it can send an event at the start time.
+            if Tag::lf_tag_compare(&next_event, &Tag::never_tag()) == 0 {
+                let mut locked_rti = _f_rti.lock().unwrap();
+                let scheduling_nodes = locked_rti.base().scheduling_nodes();
+                let upstream = scheduling_nodes[upstream_id].enclave();
+                let start_tag = Tag::new(start_time, 0);
+                upstream.set_next_event(start_tag);
+            }
+            // Need to consider nodes that are upstream of the upstream node because those
+            // nodes may send messages to the upstream node.
+            let mut earliest = Self::earliest_future_incoming_message_tag(
+                _f_rti.clone(),
+                upstream_id as u16,
+                start_time,
+            );
+            // If the next event of the upstream node is earlier, then use that.
+            if Tag::lf_tag_compare(&next_event, &earliest) < 0 {
+                earliest = next_event;
+            }
+            let earliest_tag_from_upstream = Tag::lf_delay_tag(&earliest, upstream_delay);
+            if earliest_tag_from_upstream.time() >= start_time {
+                println!(
+                    "RTI: Strict EIMT of fed/encl {} at fed/encl {} has tag ({},{}).",
+                    fed_id,
+                    upstream_id,
+                    earliest_tag_from_upstream.time() - start_time,
+                    earliest_tag_from_upstream.microstep()
+                );
+            } else {
+                println!(
+                    "[eimt_strict:782]   WARNING!!!   RTI: Strict EIMT of fed/encl {} at fed/encl {} -> earliest_tag_from_upstream.time() < start_timehas tag = ({} < {}).",
+                    fed_id,
+                    upstream_id,
+                    // FIXME: Check the below calculation
+                    earliest_tag_from_upstream.time(), // - start_time,
+                    earliest_tag_from_upstream.microstep()
+                );
+            }
+            if Tag::lf_tag_compare(&earliest_tag_from_upstream, &t_d) < 0 {
+                t_d = earliest_tag_from_upstream;
+            }
+        }
+        t_d
+    }
+
+    /**
+     * Notify a tag advance grant (TAG) message to the specified scheduling node.
+     * Do not notify it if a previously sent PTAG was greater or if a
+     * previously sent TAG was greater or equal.
+     *
+     * This function will keep a record of this TAG in the node's last_granted
+     * field.
+     *
+     * This function assumes that the caller holds the RTI mutex.
+     */
     fn notify_tag_advance_grant(
         _f_rti: Arc<Mutex<RTIRemote>>,
         fed_id: u16,
@@ -548,6 +898,15 @@ impl SchedulingNode {
         }
     }
 
+    /**
+     * Notify a provisional tag advance grant (PTAG) message to the specified scheduling node.
+     * Do not notify it if a previously sent PTAG or TAG was greater or equal.
+     *
+     * This function will keep a record of this PTAG in the node's last_provisionally_granted
+     * field.
+     *
+     * This function assumes that the caller holds the RTI mutex.
+     */
     fn notify_provisional_tag_advance_grant(
         _f_rti: Arc<Mutex<RTIRemote>>,
         fed_id: u16,
@@ -686,172 +1045,6 @@ impl SchedulingNode {
         }
     }
 
-    fn earliest_future_incoming_message_tag(
-        _f_rti: Arc<Mutex<RTIRemote>>,
-        fed_id: u16,
-        start_time: Instant,
-    ) -> Tag {
-        // First, we need to find the shortest path (minimum delay) path to each upstream node
-        // and then find the minimum of the node's recorded NET plus the minimum path delay.
-        // Update the shortest paths, if necessary.
-        let is_first_time;
-        {
-            let mut locked_rti = _f_rti.lock().unwrap();
-            let scheduling_nodes = locked_rti.base().scheduling_nodes();
-            let idx: usize = fed_id.into();
-            is_first_time = scheduling_nodes[idx].enclave().min_delays().len() == 0;
-        }
-        if is_first_time {
-            Self::update_min_delays_upstream(_f_rti.clone(), fed_id);
-        }
-
-        // Next, find the tag of the earliest possible incoming message from upstream enclaves or
-        // federates, which will be the smallest upstream NET plus the least delay.
-        // This could be NEVER_TAG if the RTI has not seen a NET from some upstream node.
-        let mut t_d = Tag::forever_tag();
-        let num_min_delays;
-        {
-            let mut locked_rti = _f_rti.lock().unwrap();
-            let enclaves = locked_rti.base().scheduling_nodes();
-            let idx: usize = fed_id.into();
-            let fed: &FederateInfo = &enclaves[idx];
-            let e = fed.e();
-            num_min_delays = e.num_min_delays();
-        }
-        for i in 0..num_min_delays {
-            let upstream_id;
-            {
-                let mut locked_rti = _f_rti.lock().unwrap();
-                let enclaves = locked_rti.base().scheduling_nodes();
-                let idx: usize = fed_id.into();
-                let fed: &FederateInfo = &enclaves[idx];
-                let e = fed.e();
-                upstream_id = e.min_delays[i as usize].id() as usize;
-            }
-            let upstream_next_event;
-            {
-                // Node e->min_delays[i].id is upstream of e with min delay e->min_delays[i].min_delay.
-                let mut locked_rti = _f_rti.lock().unwrap();
-                let enclaves = locked_rti.base().scheduling_nodes();
-                let fed: &mut FederateInfo = &mut enclaves[upstream_id];
-                let upstream = fed.enclave();
-                // If we haven't heard from the upstream node, then assume it can send an event at the start time.
-                upstream_next_event = upstream.next_event();
-                if Tag::lf_tag_compare(&upstream_next_event, &Tag::never_tag()) == 0 {
-                    let start_tag = Tag::new(start_time, 0);
-                    upstream.set_next_event(start_tag);
-                }
-            }
-            let min_delay;
-            let earliest_tag_from_upstream;
-            {
-                let mut locked_rti = _f_rti.lock().unwrap();
-                let enclaves = locked_rti.base().scheduling_nodes();
-                let idx: usize = fed_id.into();
-                let fed: &mut FederateInfo = &mut enclaves[idx];
-                let e = fed.enclave();
-                min_delay = e.min_delays()[i as usize].min_delay();
-                earliest_tag_from_upstream = Tag::lf_tag_add(&upstream_next_event, &min_delay);
-                if earliest_tag_from_upstream.time() >= start_time {
-                    println!("RTI: Earliest next event upstream of fed/encl {} at fed/encl {} has tag ({},{}).",
-                        fed_id,
-                        upstream_id,
-                        earliest_tag_from_upstream.time() - start_time,
-                        earliest_tag_from_upstream.microstep());
-                } else {
-                    println!(
-                        "    earliest_tag_from_upstream.time() < start_time,   ({},{})",
-                        earliest_tag_from_upstream.time(),
-                        start_time
-                    );
-                }
-            }
-            if Tag::lf_tag_compare(&earliest_tag_from_upstream, &t_d) < 0 {
-                t_d = earliest_tag_from_upstream.clone();
-            }
-        }
-        t_d
-    }
-
-    fn update_min_delays_upstream(_f_rti: Arc<Mutex<RTIRemote>>, node_idx: u16) {
-        let num_min_delays;
-        let number_of_scheduling_nodes;
-        {
-            let mut locked_rti = _f_rti.lock().unwrap();
-            let scheduling_nodes = locked_rti.base().scheduling_nodes();
-            let idx: usize = node_idx.into();
-            num_min_delays = scheduling_nodes[idx].enclave().min_delays().len();
-            number_of_scheduling_nodes = locked_rti.base().number_of_scheduling_nodes();
-        }
-        // Check whether cached result is valid.
-        if num_min_delays == 0 {
-            // This is not Dijkstra's algorithm, but rather one optimized for sparse upstream nodes.
-            // There must be a name for this algorithm.
-
-            // Array of results on the stack:
-            let mut path_delays = Vec::new();
-            // This will be the number of non-FOREVER entries put into path_delays.
-            let mut count: u64 = 0;
-
-            for _i in 0..number_of_scheduling_nodes {
-                path_delays.push(Tag::forever_tag());
-            }
-            // FIXME:: Handle "as i32" properly.
-            Self::_update_min_delays_upstream(
-                _f_rti.clone(),
-                node_idx as i32,
-                -1,
-                &mut path_delays,
-                &mut count,
-            );
-
-            // Put the results onto the node's struct.
-            {
-                let mut locked_rti = _f_rti.lock().unwrap();
-                let scheduling_nodes = locked_rti.base().scheduling_nodes();
-                let idx: usize = node_idx.into();
-                let node = scheduling_nodes[idx].enclave();
-                node.set_num_min_delays(count);
-                node.set_min_delays(Vec::new());
-                println!(
-                    "++++ Node {}(is in ZDC: {}),  COUNT = {},  flags = {},  number_of_scheduling_nodes = {}\n",
-                    node_idx,
-                    node.flags() & IS_IN_ZERO_DELAY_CYCLE, count, node.flags(), number_of_scheduling_nodes
-                );
-
-                let mut k = 0;
-                for i in 0..number_of_scheduling_nodes {
-                    if Tag::lf_tag_compare(&path_delays[i as usize], &Tag::forever_tag()) < 0 {
-                        // Node i is upstream.
-                        if k >= count {
-                            println!(
-                                "Internal error! Count of upstream nodes {} for node {} is wrong!",
-                                count, i
-                            );
-                            std::process::exit(1);
-                        }
-                        let min_delay = MinimumDelay::new(i, path_delays[i as usize].clone());
-                        if node.min_delays().len() > k as usize {
-                            let _ =
-                                std::mem::replace(&mut node.min_delays()[k as usize], min_delay);
-                        } else {
-                            node.min_delays().insert(k as usize, min_delay);
-                        }
-                        k = k + 1;
-                        // N^2 debug statement could be a problem with large benchmarks.
-                        // println!(
-                        //     "++++ Node {} is upstream with delay ({},{}),  k = {}",
-                        //     i,
-                        //     path_delays[i as usize].time(),
-                        //     path_delays[i as usize].microstep(),
-                        //     k
-                        // );
-                    }
-                }
-            }
-        }
-    }
-
     // Local function used recursively to find minimum delays upstream.
     // Return in count the number of non-FOREVER_TAG entries in path_delays[].
     fn _update_min_delays_upstream(
@@ -949,6 +1142,12 @@ impl SchedulingNode {
         }
     }
 
+    /**
+     * For all scheduling nodes downstream of the specified node, determine
+     * whether they should be notified of a TAG or PTAG and notify them if so.
+     *
+     * This assumes the caller holds the RTI mutex.
+     */
     pub fn notify_downstream_advance_grant_if_safe(
         _f_rti: Arc<Mutex<RTIRemote>>,
         fed_id: u16,
@@ -998,7 +1197,7 @@ impl SchedulingNode {
         }
     }
 
-    pub fn logical_tag_complete(
+    pub fn _logical_tag_complete(
         _f_rti: Arc<Mutex<RTIRemote>>,
         fed_id: u16,
         number_of_enclaves: i32,
