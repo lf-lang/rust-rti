@@ -46,7 +46,20 @@ cd lf-rust-rti/rust/rti
 cargo run -- -n 2
 ```
 
-## Current Status
+## Run Rust RTI with Lingua Franca (LF) Test Programs
 
-- Passing federated tests (lingua-franca/test/C/src/federated/) with Rust RTI: 
+1. Download and generate the LF test programs
+   - Download sources from https://github.com/lf-lang/lingua-franca
+   - Refer [https://www.lf-lang.org/docs/installation](https://www.lf-lang.org/docs/tools/code-extension)
+2. Execute Rust RTI first
+```
+cargo run -- -n 2
+```
+3. Execute a LF test program
+   - ex) For HelloDistributed program, execute following commands in each shell.
+     ```
+     lingua-franca/test/C/fed-gen/HelloDistributed/bin$ ./federate_s
+     lingua-franca/test/C/fed-gen/HelloDistributed/bin$ ./federate_d
+     ``` 
+Currently passing federated tests (lingua-franca/test/C/src/federated/) with Rust RTI: (to be updated)
   - DistributedCount.lf, DistributedStop.lf, HelloDistributed.lf, PingPongDistibuted.lf, SimpleFederated.lf, StopAtShutdown.lf
