@@ -32,5 +32,5 @@ jobs:
   #     file: 'lingua-franca-ref.txt'
 
   lf-default:
-    # needs: fetch-lf
+    # TODO(chanijjani): Change the pointer to point to the main lingua-franca repo.
     uses: chanijjani/lingua-franca/.github/workflows/c-tests-with-rust-rti.yml@integration_tests_with_rust_rti
