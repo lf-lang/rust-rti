@@ -10,14 +10,6 @@ use std::io::{Read, Write};
 use std::mem;
 use std::net::TcpStream;
 
-use socket_server_mocker::server_mocker::ServerMocker;
-use socket_server_mocker::server_mocker_instruction::{
-    ServerMockerInstruction, ServerMockerInstructionsList,
-};
-use socket_server_mocker::tcp_server_mocker::TcpServerMocker;
-
-use rand::{rngs::StdRng, Rng, RngCore, SeedableRng};
-
 use crate::tag::Tag;
 
 pub struct NetUtil {}
@@ -71,7 +63,7 @@ impl NetUtil {
         }
     }
 
-    pub fn write_to_stream(mut stream: &TcpStream, buffer: &Vec<u8>, fed_id: u16) -> usize {
+    pub fn write_to_socket(mut stream: &TcpStream, buffer: &Vec<u8>, fed_id: u16) -> usize {
         let mut bytes_written = 0;
         match stream.write(&buffer) {
             Ok(bytes_size) => {
@@ -173,6 +165,14 @@ impl NetUtil {
 mod tests {
     use super::*;
 
+    use socket_server_mocker::server_mocker::ServerMocker;
+    use socket_server_mocker::server_mocker_instruction::{
+        ServerMockerInstruction, ServerMockerInstructionsList,
+    };
+    use socket_server_mocker::tcp_server_mocker::TcpServerMocker;
+
+    use rand::{rngs::StdRng, Rng, RngCore, SeedableRng};
+
     const MAX_BUFFER_SIZE: usize = 30000;
     const ERR_MESSAGE: &str = "test message";
     const I64_SIZE: usize = mem::size_of::<i64>();
@@ -180,7 +180,7 @@ mod tests {
     const LOCAL_HOST: &str = "127.0.0.1";
 
     #[test]
-    fn test_read_from_stream_errexit_positive() {
+    fn test_read_from_socket_fail_on_error_positive() {
         let port_num = 35640;
         let tcp_server_mocker = TcpServerMocker::new(port_num).unwrap();
         let mut ip_address = LOCAL_HOST.to_owned();
@@ -196,7 +196,7 @@ mod tests {
             ),
         );
         let mut buffer = vec![0 as u8; buffer_size];
-        NetUtil::read_from_stream_errexit(&mut stream, &mut buffer, 0, ERR_MESSAGE);
+        NetUtil::read_from_socket_fail_on_error(&mut stream, &mut buffer, 0, ERR_MESSAGE);
         assert!(buffer == msg);
     }
 
@@ -231,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_to_stream_errexit_positive() {
+    fn test_write_to_socket_fail_on_error_positive() {
         let port_num = 35644;
         let tcp_server_mocker = TcpServerMocker::new(port_num).unwrap();
         let mut ip_address = LOCAL_HOST.to_owned();
@@ -241,7 +241,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let buffer_size: usize = rng.gen_range(0..MAX_BUFFER_SIZE);
         let buffer = generate_random_bytes(buffer_size);
-        let _ = NetUtil::write_to_stream_errexit(&mut stream, &buffer, 0, ERR_MESSAGE);
+        let _ = NetUtil::write_to_socket_fail_on_error(&mut stream, &buffer, 0, ERR_MESSAGE);
         let _ = tcp_server_mocker.add_mock_instructions_list(
             ServerMockerInstructionsList::new_with_instructions(
                 [ServerMockerInstruction::ReceiveMessage].as_slice(),
@@ -261,7 +261,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let buffer_size: usize = rng.gen_range(0..MAX_BUFFER_SIZE);
         let buffer = generate_random_bytes(buffer_size);
-        let written_size = NetUtil::write_to_stream(&mut stream, &buffer, 0);
+        let written_size = NetUtil::write_to_socket(&mut stream, &buffer, 0);
         let _ = tcp_server_mocker.add_mock_instructions_list(
             ServerMockerInstructionsList::new_with_instructions(
                 [ServerMockerInstruction::ReceiveMessage].as_slice(),

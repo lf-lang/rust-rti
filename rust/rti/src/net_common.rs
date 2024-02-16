@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn test_to_byte_logical_tag_complete_positive() {
-        assert!(MsgType::LogicalTagComplete.to_byte() == 9);
+        assert!(MsgType::LatestTagComplete.to_byte() == 9);
     }
 
     #[test]
@@ -313,8 +313,8 @@ mod tests {
     }
 
     #[test]
-    fn test_to_msg_type_logical_tag_complete_positive() {
-        assert!(MsgType::to_msg_type(9) == MsgType::LogicalTagComplete);
+    fn test_to_msg_type_latest_tag_complete_positive() {
+        assert!(MsgType::to_msg_type(9) == MsgType::LatestTagComplete);
     }
 
     #[test]
