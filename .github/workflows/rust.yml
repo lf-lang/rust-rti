@@ -4,13 +4,12 @@ on:
   push:
     branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  build-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -26,11 +25,27 @@ jobs:
       - name: Unit tests
         run: cd rust/rti; cargo test
 
-  # fetch-lf:
-  #   uses: chanijjani/lingua-franca/.github/workflows/extract-ref.yml@master
-  #   with:
-  #     file: 'lingua-franca-ref.txt'
+  lf-rust-rti:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
-  lf-default:
-    # TODO(chanijjani): Change the pointer to point to the main lingua-franca repo.
-    uses: chanijjani/lingua-franca/.github/workflows/c-tests-with-rust-rti.yml@integration_tests_with_rust_rti
+    steps:
+      - name: Check out lingua-franca repository
+        uses: actions/checkout@v3
+        with:
+          # TODO: Change the below repo into 'lf-lang/lingua-franca'
+          repository: chanijjani/lingua-franca
+          submodules: true
+          fetch-depth: 0          
+          # TODO: Change the below ref 'master'
+          ref: integration_tests_with_rust_rti
+      - name: Prepare build environment
+        # TODO: Change the below repo into 'lf-lang/lingua-franca@master'
+        uses: chanijjani/lingua-franca/.github/actions/prepare-build-env@integration_tests_with_rust_rti 
+      - name: Perform federated tests for C target with Rust RTI
+        run:
+          git clone https://github.com/hokeun/lf-rust-rti.git;
+          cd lf-rust-rti;
+          git checkout ${{ github.head_ref }};
+          cd ../;
+          ./gradlew targetTest -Ptarget=RustRti
