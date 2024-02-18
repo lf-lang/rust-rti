@@ -114,7 +114,11 @@ impl RTIRemote {
         }
     }
 
-    pub fn base(&mut self) -> &mut RTICommon {
+    pub fn base(&self) -> &RTICommon {
+        &self.base
+    }
+
+    pub fn base_mut(&mut self) -> &mut RTICommon {
         &mut self.base
     }
 

@@ -61,11 +61,11 @@ impl FederateInfo {
         }
     }
 
-    pub fn e(&self) -> &SchedulingNode {
+    pub fn enclave(&self) -> &SchedulingNode {
         &self.enclave
     }
 
-    pub fn enclave(&mut self) -> &mut SchedulingNode {
+    pub fn enclave_mut(&mut self) -> &mut SchedulingNode {
         &mut self.enclave
     }
 
