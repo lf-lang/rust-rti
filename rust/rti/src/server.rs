@@ -1919,7 +1919,7 @@ impl Server {
             TraceDirection::From,
         );
     }
-
+    
     fn handle_port_absent_message(
         buffer: &Vec<u8>,
         fed_id: u16,
