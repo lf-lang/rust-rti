@@ -12,6 +12,7 @@
  * This file extends enclave.h with RTI features that are specific to federations and are not
  * used by scheduling enclaves.
  */
+use std::time::{Duration, SystemTime};
 
 ////////////////  Type definitions
 
@@ -104,6 +105,45 @@ impl Tag {
 
     pub fn set_microstep(&mut self, microstep: u32) {
         self.microstep = microstep;
+    }
+
+    /**
+     * Return the current physical time in nanoseconds.
+     * On many platforms, this is the number of nanoseconds
+     * since January 1, 1970, but it is actually platform dependent.
+     * @return A time instant.
+     */
+    pub fn lf_time_physical() -> Instant {
+        Tag::_lf_physical_time()
+    }
+
+    fn _lf_physical_time() -> Instant {
+        // Get the current clock value
+        let mut result: i64 = 0;
+        Self::_lf_clock_now(&mut result);
+
+        if result == 0 {
+            println!("Failed to read the physical clock.");
+            return -1;
+        }
+
+        // TODO: Implement adjustment logic in reactor-c/core/tag.c if needed.
+
+        result
+    }
+
+    fn _lf_clock_now(t: &mut Instant) {
+        match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+            Ok(n) => *t = Self::convert_timespec_to_ns(n),
+            Err(_) => panic!("SystemTime before UNIX EPOCH!"),
+        }
+    }
+
+    fn convert_timespec_to_ns(tp: Duration) -> Instant {
+        // TODO: Handle unwrap() properly.
+        return (tp.as_secs() * 1000000000 + u64::from(tp.subsec_nanos()))
+            .try_into()
+            .unwrap();
     }
 
     pub fn lf_tag_compare(tag1: &Tag, tag2: &Tag) -> i32 {

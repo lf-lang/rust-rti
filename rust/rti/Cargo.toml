@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 byteorder = "1"
 priority-queue = "2.0.2"
+zerocopy = { version = "0.7.32", features = ["derive"] }
