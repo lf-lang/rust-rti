@@ -82,7 +82,7 @@ pub fn process_args(rti: &mut RTIRemote, argv: &[String]) -> Result<(), &'static
                     return Err("Fail to parse a string to i64");
                 }
             };
-            rti.base()
+            rti.base_mut()
                 .set_number_of_scheduling_nodes(num_federates.try_into().unwrap()); // FIXME: panic if the converted value doesn't fit
             println!(
                 "RTI: Number of federates: {}",
@@ -176,13 +176,13 @@ pub fn initialize_federates(rti: &mut RTIRemote) {
         let mut federate = FederateInfo::new();
         // FIXME: Handle "as u16" properly.
         initialize_federate(&mut federate, i as u16);
-        let scheduling_nodes: &mut Vec<FederateInfo> = rti.base().scheduling_nodes();
+        let scheduling_nodes: &mut Vec<FederateInfo> = rti.base_mut().scheduling_nodes_mut();
         scheduling_nodes.insert(i as usize, federate);
     }
 }
 
 fn initialize_federate(fed: &mut FederateInfo, id: u16) {
-    let enclave = fed.enclave();
+    let enclave = fed.enclave_mut();
     enclave.initialize_scheduling_node(id);
     // TODO: fed.set_in_transit_message_tags();
     // TODO: fed.set_server_ip_addr();

@@ -21,7 +21,7 @@ use crate::SchedulingNodeState::*;
 
 use std::io::Write;
 use std::mem;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, RwLock};
 
 const IS_IN_ZERO_DELAY_CYCLE: i32 = 1;
 const IS_IN_CYCLE: i32 = 2;
@@ -158,7 +158,11 @@ impl SchedulingNode {
         self.num_downstream
     }
 
-    pub fn min_delays(&mut self) -> &mut Vec<MinimumDelay> {
+    pub fn min_delays(&self) -> &Vec<MinimumDelay> {
+        &self.min_delays
+    }
+
+    pub fn min_delays_mut(&mut self) -> &mut Vec<MinimumDelay> {
         &mut self.min_delays
     }
 
@@ -230,7 +234,7 @@ impl SchedulingNode {
      * This function assumes that the caller is holding the RTI mutex.
      */
     pub fn update_scheduling_node_next_event_tag_locked(
-        _f_rti: Arc<Mutex<RTIRemote>>,
+        _f_rti: Arc<RwLock<RTIRemote>>,
         fed_id: u16,
         next_event_tag: Tag,
         start_time: Instant,
@@ -239,11 +243,11 @@ impl SchedulingNode {
         let num_upstream;
         let number_of_scheduling_nodes;
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let mut locked_rti = _f_rti.write().unwrap();
             number_of_scheduling_nodes = locked_rti.base().number_of_scheduling_nodes();
             let idx: usize = fed_id.into();
-            let fed = &mut locked_rti.base().scheduling_nodes()[idx];
-            let e = fed.enclave();
+            let fed = &mut locked_rti.base_mut().scheduling_nodes_mut()[idx];
+            let e = fed.enclave_mut();
             e.set_next_event(next_event_tag.clone());
             num_upstream = e.num_upstream();
         }
@@ -266,10 +270,10 @@ impl SchedulingNode {
                 sent_start_time.clone(),
             );
         } else {
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let mut locked_rti = _f_rti.write().unwrap();
             let idx: usize = fed_id.into();
-            let fed = &mut locked_rti.base().scheduling_nodes()[idx];
-            let e = fed.enclave();
+            let fed = &mut locked_rti.base_mut().scheduling_nodes_mut()[idx];
+            let e = fed.enclave_mut();
             e.set_last_granted(next_event_tag.clone());
         }
         // Check downstream enclaves to see whether they should now be granted a TAG.
@@ -294,7 +298,7 @@ impl SchedulingNode {
      * This assumes the caller holds the RTI mutex.
      */
     fn notify_advance_grant_if_safe(
-        _f_rti: Arc<Mutex<RTIRemote>>,
+        _f_rti: Arc<RwLock<RTIRemote>>,
         fed_id: u16,
         number_of_enclaves: i32,
         start_time: Instant,
@@ -350,7 +354,7 @@ impl SchedulingNode {
      * This function assumes that the caller holds the RTI mutex.
      */
     fn tag_advance_grant_if_safe(
-        _f_rti: Arc<Mutex<RTIRemote>>,
+        _f_rti: Arc<RwLock<RTIRemote>>,
         fed_id: u16,
         // number_of_enclaves: i32,
         start_time: Instant,
@@ -361,15 +365,15 @@ impl SchedulingNode {
         {
             let mut min_upstream_completed = Tag::forever_tag();
 
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let locked_rti = _f_rti.read().unwrap();
             let scheduling_nodes = locked_rti.base().scheduling_nodes();
             let idx: usize = fed_id.into();
-            let e = scheduling_nodes[idx].e();
+            let e = scheduling_nodes[idx].enclave();
             let upstreams = e.upstream();
             let upstream_delay = e.upstream_delay();
             for j in 0..upstreams.len() {
                 let delay = upstream_delay[j];
-                let upstream = &scheduling_nodes[upstreams[j] as usize].e();
+                let upstream = &scheduling_nodes[upstreams[j] as usize].enclave();
                 // Ignore this enclave if it no longer connected.
                 if upstream.state() == SchedulingNodeState::NotConnected {
                     continue;
@@ -446,10 +450,10 @@ impl SchedulingNode {
         let last_provisionally_granted;
         let last_granted;
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let locked_rti = _f_rti.read().unwrap();
             let scheduling_nodes = locked_rti.base().scheduling_nodes();
             let idx: usize = fed_id.into();
-            let e = scheduling_nodes[idx].e();
+            let e = scheduling_nodes[idx].enclave();
             next_event = e.next_event();
             last_provisionally_granted = e.last_provisionally_granted();
             last_granted = e.last_granted();
@@ -517,7 +521,7 @@ impl SchedulingNode {
      * upstream node.
      */
     fn earliest_future_incoming_message_tag(
-        _f_rti: Arc<Mutex<RTIRemote>>,
+        _f_rti: Arc<RwLock<RTIRemote>>,
         fed_id: u16,
         start_time: Instant,
     ) -> Tag {
@@ -526,7 +530,7 @@ impl SchedulingNode {
         // Update the shortest paths, if necessary.
         let is_first_time;
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let locked_rti = _f_rti.read().unwrap();
             let scheduling_nodes = locked_rti.base().scheduling_nodes();
             let idx: usize = fed_id.into();
             is_first_time = scheduling_nodes[idx].enclave().min_delays().len() == 0;
@@ -541,30 +545,30 @@ impl SchedulingNode {
         let mut t_d = Tag::forever_tag();
         let num_min_delays;
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let locked_rti = _f_rti.read().unwrap();
             let enclaves = locked_rti.base().scheduling_nodes();
             let idx: usize = fed_id.into();
             let fed: &FederateInfo = &enclaves[idx];
-            let e = fed.e();
+            let e = fed.enclave();
             num_min_delays = e.num_min_delays();
         }
         for i in 0..num_min_delays {
             let upstream_id;
             {
-                let mut locked_rti = _f_rti.lock().unwrap();
+                let locked_rti = _f_rti.read().unwrap();
                 let enclaves = locked_rti.base().scheduling_nodes();
                 let idx: usize = fed_id.into();
                 let fed: &FederateInfo = &enclaves[idx];
-                let e = fed.e();
+                let e = fed.enclave();
                 upstream_id = e.min_delays[i as usize].id() as usize;
             }
             let upstream_next_event;
             {
                 // Node e->min_delays[i].id is upstream of e with min delay e->min_delays[i].min_delay.
-                let mut locked_rti = _f_rti.lock().unwrap();
-                let enclaves = locked_rti.base().scheduling_nodes();
-                let fed: &mut FederateInfo = &mut enclaves[upstream_id];
-                let upstream = fed.enclave();
+                let mut locked_rti = _f_rti.write().unwrap();
+                let fed: &mut FederateInfo =
+                    &mut locked_rti.base_mut().scheduling_nodes_mut()[upstream_id];
+                let upstream = fed.enclave_mut();
                 // If we haven't heard from the upstream node, then assume it can send an event at the start time.
                 upstream_next_event = upstream.next_event();
                 if Tag::lf_tag_compare(&upstream_next_event, &Tag::never_tag()) == 0 {
@@ -580,10 +584,9 @@ impl SchedulingNode {
             let min_delay;
             let earliest_tag_from_upstream;
             {
-                let mut locked_rti = _f_rti.lock().unwrap();
-                let enclaves = locked_rti.base().scheduling_nodes();
+                let locked_rti = _f_rti.read().unwrap();
                 let idx: usize = fed_id.into();
-                let fed: &mut FederateInfo = &mut enclaves[idx];
+                let fed = &locked_rti.base().scheduling_nodes()[idx];
                 let e = fed.enclave();
                 min_delay = e.min_delays()[i as usize].min_delay();
                 earliest_tag_from_upstream = Tag::lf_tag_add(&upstream_next_event, &min_delay);
@@ -616,11 +619,11 @@ impl SchedulingNode {
      * updated only if they have not been previously updated or if invalidate_min_delays_upstream
      * has been called since they were last updated.
      */
-    fn update_min_delays_upstream(_f_rti: Arc<Mutex<RTIRemote>>, node_idx: u16) {
+    fn update_min_delays_upstream(_f_rti: Arc<RwLock<RTIRemote>>, node_idx: u16) {
         let num_min_delays;
         let number_of_scheduling_nodes;
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let locked_rti = _f_rti.read().unwrap();
             let scheduling_nodes = locked_rti.base().scheduling_nodes();
             let idx: usize = node_idx.into();
             num_min_delays = scheduling_nodes[idx].enclave().min_delays().len();
@@ -650,10 +653,10 @@ impl SchedulingNode {
 
             // Put the results onto the node's struct.
             {
-                let mut locked_rti = _f_rti.lock().unwrap();
-                let scheduling_nodes = locked_rti.base().scheduling_nodes();
+                let mut locked_rti = _f_rti.write().unwrap();
+                let scheduling_nodes = locked_rti.base_mut().scheduling_nodes_mut();
                 let idx: usize = node_idx.into();
-                let node = scheduling_nodes[idx].enclave();
+                let node = scheduling_nodes[idx].enclave_mut();
                 node.set_num_min_delays(count);
                 node.set_min_delays(Vec::new());
                 println!(
@@ -674,10 +677,12 @@ impl SchedulingNode {
                         }
                         let min_delay = MinimumDelay::new(i, path_delays[i as usize].clone());
                         if node.min_delays().len() > k as usize {
-                            let _ =
-                                std::mem::replace(&mut node.min_delays()[k as usize], min_delay);
+                            let _ = std::mem::replace(
+                                &mut node.min_delays_mut()[k as usize],
+                                min_delay,
+                            );
                         } else {
-                            node.min_delays().insert(k as usize, min_delay);
+                            node.min_delays_mut().insert(k as usize, min_delay);
                         }
                         k = k + 1;
                         // N^2 debug statement could be a problem with large benchmarks.
@@ -694,10 +699,10 @@ impl SchedulingNode {
         }
     }
 
-    fn is_in_zero_delay_cycle(_f_rti: Arc<Mutex<RTIRemote>>, fed_id: u16) -> bool {
+    fn is_in_zero_delay_cycle(_f_rti: Arc<RwLock<RTIRemote>>, fed_id: u16) -> bool {
         let is_first_time;
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let locked_rti = _f_rti.read().unwrap();
             let scheduling_nodes = locked_rti.base().scheduling_nodes();
             let idx: usize = fed_id.into();
             is_first_time = scheduling_nodes[idx].enclave().min_delays().len() == 0;
@@ -707,10 +712,10 @@ impl SchedulingNode {
         }
         let flags;
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let locked_rti = _f_rti.read().unwrap();
             let scheduling_nodes = locked_rti.base().scheduling_nodes();
             let idx: usize = fed_id.into();
-            let node = scheduling_nodes[idx].e();
+            let node = scheduling_nodes[idx].enclave();
             flags = node.flags()
         }
         (flags & IS_IN_ZERO_DELAY_CYCLE) != 0
@@ -725,17 +730,16 @@ impl SchedulingNode {
      * introducing a deadlock.  This will return FOREVER_TAG if there are no non-ZDC upstream nodes.
      * @return The earliest possible incoming message tag from a non-ZDC upstream node.
      */
-    fn eimt_strict(_f_rti: Arc<Mutex<RTIRemote>>, fed_id: u16, start_time: Instant) -> Tag {
+    fn eimt_strict(_f_rti: Arc<RwLock<RTIRemote>>, fed_id: u16, start_time: Instant) -> Tag {
         // Find the tag of the earliest possible incoming message from immediately upstream
         // enclaves or federates that are not part of a zero-delay cycle.
         // This will be the smallest upstream NET plus the least delay.
         // This could be NEVER_TAG if the RTI has not seen a NET from some upstream node.
         let num_upstream;
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
-            let scheduling_nodes = locked_rti.base().scheduling_nodes();
+            let locked_rti = _f_rti.read().unwrap();
             let idx: usize = fed_id.into();
-            let e = scheduling_nodes[idx].e();
+            let e = locked_rti.base().scheduling_nodes()[idx].enclave();
             num_upstream = e.num_upstream();
         }
         let mut t_d = Tag::forever_tag();
@@ -744,10 +748,10 @@ impl SchedulingNode {
             let upstream_delay;
             let next_event;
             {
-                let mut locked_rti = _f_rti.lock().unwrap();
+                let locked_rti = _f_rti.read().unwrap();
                 let scheduling_nodes = locked_rti.base().scheduling_nodes();
                 let idx: usize = fed_id.into();
-                let e = scheduling_nodes[idx].e();
+                let e = scheduling_nodes[idx].enclave();
                 // let upstreams = e.upstream();
                 // let upstream_id = upstreams[i] as usize;
                 upstream_id = e.upstream()[i as usize] as usize;
@@ -760,9 +764,9 @@ impl SchedulingNode {
             }
             // If we haven't heard from the upstream node, then assume it can send an event at the start time.
             if Tag::lf_tag_compare(&next_event, &Tag::never_tag()) == 0 {
-                let mut locked_rti = _f_rti.lock().unwrap();
-                let scheduling_nodes = locked_rti.base().scheduling_nodes();
-                let upstream = scheduling_nodes[upstream_id].enclave();
+                let mut locked_rti = _f_rti.write().unwrap();
+                let scheduling_nodes = locked_rti.base_mut().scheduling_nodes_mut();
+                let upstream = scheduling_nodes[upstream_id].enclave_mut();
                 let start_tag = Tag::new(start_time, 0);
                 upstream.set_next_event(start_tag);
             }
@@ -814,18 +818,17 @@ impl SchedulingNode {
      * This function assumes that the caller holds the RTI mutex.
      */
     fn notify_tag_advance_grant(
-        _f_rti: Arc<Mutex<RTIRemote>>,
+        _f_rti: Arc<RwLock<RTIRemote>>,
         fed_id: u16,
         tag: Tag,
         start_time: Instant,
         sent_start_time: Arc<(Mutex<bool>, Condvar)>,
     ) {
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
-            let enclaves = locked_rti.base().scheduling_nodes();
+            let locked_rti = _f_rti.read().unwrap();
             let idx: usize = fed_id.into();
-            let fed: &FederateInfo = &enclaves[idx];
-            let e = fed.e();
+            let fed: &FederateInfo = &locked_rti.base().scheduling_nodes()[idx];
+            let e = fed.enclave();
             if e.state() == SchedulingNodeState::NotConnected
                 || Tag::lf_tag_compare(&tag, &e.last_granted()) <= 0
                 || Tag::lf_tag_compare(&tag, &e.last_provisionally_granted()) <= 0
@@ -859,10 +862,9 @@ impl SchedulingNode {
         // to fail. Consider a failure here a soft failure and update the federate's status.
         let mut error_occurred = false;
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
-            let scheduling_nodes = locked_rti.base().scheduling_nodes();
-            let fed: &FederateInfo = &scheduling_nodes[fed_id as usize];
-            let e = fed.e();
+            let locked_rti = _f_rti.read().unwrap();
+            let fed: &FederateInfo = &locked_rti.base().scheduling_nodes()[fed_id as usize];
+            let e = fed.enclave();
             let mut stream = fed.stream().as_ref().unwrap();
             match stream.write(&buffer) {
                 Ok(bytes_written) => {
@@ -879,10 +881,10 @@ impl SchedulingNode {
             }
         }
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let mut locked_rti = _f_rti.write().unwrap();
             let mut_fed: &mut FederateInfo =
-                &mut locked_rti.base().scheduling_nodes()[fed_id as usize];
-            let enclave = mut_fed.enclave();
+                &mut locked_rti.base_mut().scheduling_nodes_mut()[fed_id as usize];
+            let enclave = mut_fed.enclave_mut();
             if error_occurred {
                 enclave.set_state(SchedulingNodeState::NotConnected);
                 // FIXME: We need better error handling, but don't stop other execution here.
@@ -908,7 +910,7 @@ impl SchedulingNode {
      * This function assumes that the caller holds the RTI mutex.
      */
     fn notify_provisional_tag_advance_grant(
-        _f_rti: Arc<Mutex<RTIRemote>>,
+        _f_rti: Arc<RwLock<RTIRemote>>,
         fed_id: u16,
         number_of_enclaves: i32,
         tag: Tag,
@@ -916,11 +918,10 @@ impl SchedulingNode {
         sent_start_time: Arc<(Mutex<bool>, Condvar)>,
     ) {
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
-            let enclaves = locked_rti.base().scheduling_nodes();
+            let locked_rti = _f_rti.read().unwrap();
             let idx: usize = fed_id.into();
-            let fed: &FederateInfo = &enclaves[idx];
-            let e = fed.e();
+            let fed: &FederateInfo = &locked_rti.base().scheduling_nodes()[idx];
+            let e = fed.enclave();
             if e.state() == SchedulingNodeState::NotConnected
                 || Tag::lf_tag_compare(&tag, &e.last_granted()) <= 0
                 || Tag::lf_tag_compare(&tag, &e.last_provisionally_granted()) <= 0
@@ -954,10 +955,10 @@ impl SchedulingNode {
         // to fail. Consider a failure here a soft failure and update the federate's status.
         let mut error_occurred = false;
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let locked_rti = _f_rti.read().unwrap();
             let enclaves = locked_rti.base().scheduling_nodes();
             let fed: &FederateInfo = &enclaves[fed_id as usize];
-            let e = fed.e();
+            let e = fed.enclave();
             let mut stream = fed.stream().as_ref().unwrap();
             match stream.write(&buffer) {
                 Ok(bytes_written) => {
@@ -975,10 +976,10 @@ impl SchedulingNode {
             }
         }
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let mut locked_rti = _f_rti.write().unwrap();
             let mut_fed: &mut FederateInfo =
-                &mut locked_rti.base().scheduling_nodes()[fed_id as usize];
-            let enclave = mut_fed.enclave();
+                &mut locked_rti.base_mut().scheduling_nodes_mut()[fed_id as usize];
+            let enclave = mut_fed.enclave_mut();
             if error_occurred {
                 enclave.set_state(SchedulingNodeState::NotConnected);
                 // FIXME: We need better error handling, but don't stop other execution here.
@@ -1003,25 +1004,25 @@ impl SchedulingNode {
         // It's only needed for federates, which is why this is implemented here.
         let num_upstream;
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let locked_rti = _f_rti.read().unwrap();
             let enclaves = locked_rti.base().scheduling_nodes();
             let idx: usize = fed_id.into();
             let fed: &FederateInfo = &enclaves[idx];
-            let e = fed.e();
+            let e = fed.enclave();
             num_upstream = e.num_upstream();
         }
         for j in 0..num_upstream {
             let e_id;
             {
-                let mut locked_rti = _f_rti.lock().unwrap();
+                let locked_rti = _f_rti.read().unwrap();
                 let enclaves = locked_rti.base().scheduling_nodes();
                 let idx: usize = fed_id.into();
                 let fed: &FederateInfo = &enclaves[idx];
-                e_id = fed.e().upstream()[j as usize];
+                e_id = fed.enclave().upstream()[j as usize];
                 let upstream: &FederateInfo = &enclaves[e_id as usize];
 
                 // Ignore this federate if it has resigned.
-                if upstream.e().state() == NotConnected {
+                if upstream.enclave().state() == NotConnected {
                     continue;
                 }
             }
@@ -1048,7 +1049,7 @@ impl SchedulingNode {
     // Local function used recursively to find minimum delays upstream.
     // Return in count the number of non-FOREVER_TAG entries in path_delays[].
     fn _update_min_delays_upstream(
-        _f_rti: Arc<Mutex<RTIRemote>>,
+        _f_rti: Arc<RwLock<RTIRemote>>,
         end_idx: i32,
         mut intermediate_idx: i32,
         path_delays: &mut Vec<Tag>,
@@ -1063,10 +1064,10 @@ impl SchedulingNode {
             delay_from_intermediate_so_far = path_delays[intermediate_idx as usize].clone();
         }
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let locked_rti = _f_rti.read().unwrap();
             let fed: &FederateInfo =
                 &locked_rti.base().scheduling_nodes()[intermediate_idx as usize];
-            let intermediate = fed.e();
+            let intermediate = fed.enclave();
             if intermediate.state() == SchedulingNodeState::NotConnected {
                 // Enclave or federate is not connected.
                 // No point in checking upstream scheduling_nodes.
@@ -1079,19 +1080,19 @@ impl SchedulingNode {
         // upstream nodes.
         let num_upstream;
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let locked_rti = _f_rti.read().unwrap();
             let fed: &FederateInfo =
                 &locked_rti.base().scheduling_nodes()[intermediate_idx as usize];
-            let e = fed.e();
+            let e = fed.enclave();
             num_upstream = e.num_upstream();
         }
         for i in 0..num_upstream {
             let upstream_id;
             let upstream_delay;
             {
-                let mut locked_rti = _f_rti.lock().unwrap();
+                let locked_rti = _f_rti.read().unwrap();
                 let scheduling_nodes = locked_rti.base().scheduling_nodes();
-                let e = scheduling_nodes[intermediate_idx as usize].e();
+                let e = scheduling_nodes[intermediate_idx as usize].enclave();
                 upstream_id = e.upstream[i as usize];
                 upstream_delay = e.upstream_delay[i as usize];
             }
@@ -1123,9 +1124,10 @@ impl SchedulingNode {
                         count,
                     );
                 } else {
-                    let mut locked_rti = _f_rti.lock().unwrap();
-                    let scheduling_nodes = locked_rti.base().scheduling_nodes();
-                    let end: &mut SchedulingNode = scheduling_nodes[end_idx as usize].enclave();
+                    let mut locked_rti = _f_rti.write().unwrap();
+                    let end: &mut SchedulingNode = locked_rti.base_mut().scheduling_nodes_mut()
+                        [end_idx as usize]
+                        .enclave_mut();
                     // Found a cycle.
                     end.set_flags(end.flags() | IS_IN_CYCLE);
                     // Is it a zero-delay cycle?
@@ -1149,7 +1151,7 @@ impl SchedulingNode {
      * This assumes the caller holds the RTI mutex.
      */
     pub fn notify_downstream_advance_grant_if_safe(
-        _f_rti: Arc<Mutex<RTIRemote>>,
+        _f_rti: Arc<RwLock<RTIRemote>>,
         fed_id: u16,
         number_of_enclaves: i32,
         start_time: Instant,
@@ -1159,20 +1161,19 @@ impl SchedulingNode {
         visited[fed_id as usize] = true;
         let num_downstream;
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let locked_rti = _f_rti.read().unwrap();
             let idx: usize = fed_id.into();
-            let fed: &FederateInfo = &locked_rti.base().scheduling_nodes()[idx];
-            let e = fed.e();
+            let fed = &locked_rti.base().scheduling_nodes()[idx];
+            let e = fed.enclave();
             num_downstream = e.num_downstream();
         }
         for i in 0..num_downstream {
             let e_id;
             {
-                let mut locked_rti = _f_rti.lock().unwrap();
-                let enclaves = locked_rti.base().scheduling_nodes();
+                let locked_rti = _f_rti.read().unwrap();
                 let idx: usize = fed_id.into();
-                let fed: &FederateInfo = &enclaves[idx];
-                let downstreams = fed.e().downstream();
+                let fed: &FederateInfo = &locked_rti.base().scheduling_nodes()[idx];
+                let downstreams = fed.enclave().downstream();
                 // FIXME: Replace "as u16" properly.
                 e_id = downstreams[i as usize] as u16;
                 if visited[e_id as usize] {
@@ -1198,7 +1199,7 @@ impl SchedulingNode {
     }
 
     pub fn _logical_tag_complete(
-        _f_rti: Arc<Mutex<RTIRemote>>,
+        _f_rti: Arc<RwLock<RTIRemote>>,
         fed_id: u16,
         number_of_enclaves: i32,
         start_time: Instant,
@@ -1208,10 +1209,10 @@ impl SchedulingNode {
         // FIXME: Consolidate this message with NET to get NMR (Next Message Request).
         // Careful with handling startup and shutdown.
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let mut locked_rti = _f_rti.write().unwrap();
             let idx: usize = fed_id.into();
-            let fed: &mut FederateInfo = &mut locked_rti.base().scheduling_nodes()[idx];
-            let enclave = fed.enclave();
+            let fed: &mut FederateInfo = &mut locked_rti.base_mut().scheduling_nodes_mut()[idx];
+            let enclave = fed.enclave_mut();
             enclave.set_completed(completed);
 
             println!(
@@ -1225,19 +1226,19 @@ impl SchedulingNode {
         // Check downstream enclaves to see whether they should now be granted a TAG.
         let num_downstream;
         {
-            let mut locked_rti = _f_rti.lock().unwrap();
+            let locked_rti = _f_rti.read().unwrap();
             let idx: usize = fed_id.into();
             let fed: &FederateInfo = &locked_rti.base().scheduling_nodes()[idx];
-            let e = fed.e();
+            let e = fed.enclave();
             num_downstream = e.num_downstream();
         }
         for i in 0..num_downstream {
             let e_id;
             {
-                let mut locked_rti = _f_rti.lock().unwrap();
+                let locked_rti = _f_rti.read().unwrap();
                 let idx: usize = fed_id.into();
                 let fed: &FederateInfo = &locked_rti.base().scheduling_nodes()[idx];
-                let downstreams = fed.e().downstream();
+                let downstreams = fed.enclave().downstream();
                 // FIXME: Replace "as u16" properly.
                 e_id = downstreams[i as usize] as u16;
             }
@@ -1296,7 +1297,11 @@ impl RTICommon {
         }
     }
 
-    pub fn scheduling_nodes(&mut self) -> &mut Vec<FederateInfo> {
+    pub fn scheduling_nodes(&self) -> &Vec<FederateInfo> {
+        &self.scheduling_nodes
+    }
+
+    pub fn scheduling_nodes_mut(&mut self) -> &mut Vec<FederateInfo> {
         &mut self.scheduling_nodes
     }
 
