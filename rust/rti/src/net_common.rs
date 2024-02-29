@@ -100,6 +100,7 @@ pub enum MsgType {
     StopRequestReply,
     StopGranted,
     AddressQuery,
+    AddressAdvertisement,
     P2pSendingFedId,
     P2pTaggedMessage,
     PortAbsent,
@@ -125,6 +126,7 @@ impl MsgType {
             MsgType::StopRequestReply => 11,
             MsgType::StopGranted => 12,
             MsgType::AddressQuery => 13,
+            MsgType::AddressAdvertisement => 14,
             MsgType::P2pSendingFedId => 15,
             MsgType::P2pTaggedMessage => 17,
             MsgType::PortAbsent => 23,
@@ -147,6 +149,7 @@ impl MsgType {
             11 => MsgType::StopRequestReply,
             12 => MsgType::StopGranted,
             13 => MsgType::AddressQuery,
+            14 => MsgType::AddressAdvertisement,
             23 => MsgType::PortAbsent,
             _ => MsgType::Ignore,
         }

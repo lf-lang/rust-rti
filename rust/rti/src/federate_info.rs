@@ -7,7 +7,7 @@ use crate::message_record::message_record::InTransitMessageRecordQueue;
  * @author Chadlia Jerad (chadlia.jerad@ensi-uma.tn)
  * @author Chanhee Lee (chanheel@asu.edu)
  * @author Hokeun Kim (hokeun@asu.edu)
- * @copyright (c) 2020-2023, The University of California at Berkeley
+ * @copyright (c) 2020-2024, The University of California at Berkeley
  * License in [BSD 2-clause](..)
  * @brief Declarations for runtime infrastructure (RTI) for distributed Lingua Franca programs.
  * This file extends rti_common.h with RTI features that are specific to federations and are not
@@ -15,7 +15,8 @@ use crate::message_record::message_record::InTransitMessageRecordQueue;
  */
 use crate::rti_common::*;
 
-use std::net::TcpStream;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+
 use std::option::Option;
 
 /**
@@ -31,9 +32,9 @@ pub struct FederateInfo {
     requested_stop: bool, // Indicates that the federate has requested stop or has replied
     // to a request for stop from the RTI. Used to prevent double-counting
     // a federate when handling lf_request_stop().
-    // TODO: lf_thread_t thread_id;    // The ID of the thread handling communication with this federate.
+    // TODO: lf_thread_t thread_id;
     stream: Option<TcpStream>, // The TCP socket descriptor for communicating with this federate.
-    // TODO: struct sockaddr_in UDP_addr;           // The UDP address for the federate.
+    // TODO: struct sockaddr_in UDP_addr;
     clock_synchronization_enabled: bool, // Indicates the status of clock synchronization
     // for this federate. Enabled by default.
     in_transit_message_tags: InTransitMessageRecordQueue, // Record of in-transit messages to this federate that are not
@@ -41,11 +42,13 @@ pub struct FederateInfo {
     // value of each message for a more efficient access.
     server_hostname: String, // Human-readable IP address and
     server_port: i32,        // port number of the socket server of the federate
-                             // if it has any incoming direct connections from other federates.
-                             // The port number will be -1 if there is no server or if the
-                             // RTI has not been informed of the port number.
-                             // TODO: struct in_addr server_ip_addr; // Information about the IP address of the socket
-                             // server of the federate.
+    // if it has any incoming direct connections from other federates.
+    // The port number will be -1 if there is no server or if the
+    // RTI has not been informed of the port number.
+    // TODO: struct in_addr server_ip_addr;
+    // server of the federate.
+    server_ip_addr: SocketAddr, // Information about the IP address of the socket
+                                // server of the federate.
 }
 
 impl FederateInfo {
@@ -58,6 +61,7 @@ impl FederateInfo {
             in_transit_message_tags: InTransitMessageRecordQueue::new(),
             server_hostname: String::from("localhost"),
             server_port: -1,
+            server_ip_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080),
         }
     }
 
@@ -79,6 +83,18 @@ impl FederateInfo {
 
     pub fn clock_synchronization_enabled(&self) -> bool {
         self.clock_synchronization_enabled
+    }
+
+    pub fn server_hostname(&self) -> String {
+        self.server_hostname.clone()
+    }
+
+    pub fn server_port(&self) -> i32 {
+        self.server_port
+    }
+
+    pub fn server_ip_addr(&self) -> SocketAddr {
+        self.server_ip_addr.clone()
     }
 
     pub fn set_requested_stop(&mut self, requested_stop: bool) {
@@ -103,5 +119,9 @@ impl FederateInfo {
 
     pub fn set_server_port(&mut self, server_port: i32) {
         self.server_port = server_port;
+    }
+
+    pub fn set_server_ip_addr(&mut self, server_ip_addr: SocketAddr) {
+        self.server_ip_addr = server_ip_addr;
     }
 }
