@@ -8,9 +8,9 @@
  */
 mod constants;
 mod federate_info;
+mod in_transit_message_queue;
 mod net_common;
 mod net_util;
-mod pqueue_tag;
 mod rti_common;
 mod rti_remote;
 mod server;

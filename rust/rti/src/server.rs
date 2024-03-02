@@ -13,10 +13,10 @@ use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
 
+use crate::in_transit_message_queue::InTransitMessageQueue;
 use crate::net_common;
 use crate::net_common::*;
 use crate::net_util::*;
-use crate::pqueue_tag::PQueueTag;
 use crate::tag;
 use crate::tag::*;
 use crate::trace::{TraceDirection, TraceEvent};
@@ -1199,7 +1199,7 @@ impl Server {
         // Record this in-transit message in federate_info's in-transit message queue.
         if Tag::lf_tag_compare(&completed, &intended_tag) < 0 {
             // Add a record of this message to the list of in-transit messages to this federate_info.
-            PQueueTag::pqueue_tag_insert_if_no_match(
+            InTransitMessageQueue::insert_if_no_match_tag(
                 _f_rti.clone(),
                 federate_id,
                 intended_tag.clone(),
@@ -1243,7 +1243,7 @@ impl Server {
         start_time: Instant,
         sent_start_time: Arc<(Mutex<bool>, Condvar)>,
     ) {
-        let min_in_transit_tag = PQueueTag::pqueue_tag_peek_tag(_f_rti.clone(), fed_id);
+        let min_in_transit_tag = InTransitMessageQueue::peek_tag(_f_rti.clone(), fed_id);
         if Tag::lf_tag_compare(&min_in_transit_tag, &next_event_tag) < 0 {
             next_event_tag = min_in_transit_tag.clone();
         }
@@ -1360,7 +1360,7 @@ impl Server {
         );
 
         // See if we can remove any of the recorded in-transit messages for this.
-        PQueueTag::pqueue_tag_remove_up_to(_f_rti.clone(), fed_id, completed);
+        InTransitMessageQueue::remove_up_to(_f_rti.clone(), fed_id, completed);
     }
 
     fn handle_stop_request_message(
@@ -1895,7 +1895,7 @@ impl Server {
             TraceDirection::From,
         );
     }
-    
+
     fn handle_port_absent_message(
         buffer: &Vec<u8>,
         fed_id: u16,
