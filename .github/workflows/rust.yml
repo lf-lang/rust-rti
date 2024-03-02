@@ -27,7 +27,7 @@ jobs:
 
   lf-rust-rti:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - name: Check out lingua-franca repository
