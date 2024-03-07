@@ -16,6 +16,7 @@ use crate::net_util::NetUtil;
 use crate::rti_remote::RTIRemote;
 use crate::tag;
 use crate::tag::{Instant, Interval, Tag, FOREVER};
+use crate::trace::{Trace, TraceDirection, TraceEvent};
 use crate::FederateInfo;
 use crate::SchedulingNodeState::*;
 
@@ -827,7 +828,7 @@ impl SchedulingNode {
         {
             let locked_rti = _f_rti.read().unwrap();
             let idx: usize = fed_id.into();
-            let fed: &FederateInfo = &locked_rti.base().scheduling_nodes()[idx];
+            let fed = &locked_rti.base().scheduling_nodes()[idx];
             let e = fed.enclave();
             if e.state() == SchedulingNodeState::NotConnected
                 || Tag::lf_tag_compare(&tag, &e.last_granted()) <= 0
@@ -857,6 +858,14 @@ impl SchedulingNode {
             1 + mem::size_of::<i64>(),
         );
 
+        Trace::log_trace(
+            _f_rti.clone(),
+            TraceEvent::SendTag,
+            fed_id,
+            &tag,
+            start_time,
+            TraceDirection::To,
+        );
         // This function is called in notify_advance_grant_if_safe(), which is a long
         // function. During this call, the socket might close, causing the following write_to_socket
         // to fail. Consider a failure here a soft failure and update the federate's status.
@@ -950,6 +959,14 @@ impl SchedulingNode {
             1 + mem::size_of::<i64>(),
         );
 
+        Trace::log_trace(
+            _f_rti.clone(),
+            TraceEvent::SendPTag,
+            fed_id,
+            &tag,
+            start_time,
+            TraceDirection::To,
+        );
         // This function is called in notify_advance_grant_if_safe(), which is a long
         // function. During this call, the socket might close, causing the following write_to_socket
         // to fail. Consider a failure here a soft failure and update the federate's status.
@@ -1279,9 +1296,9 @@ pub struct RTICommon {
 
     // Boolean indicating that tracing is enabled.
     tracing_enabled: bool,
-    // Pointer to a tracing object
-    // TODO: trace_t* trace;
 
+    // Pointer to a tracing object
+    trace: Trace,
     // The RTI mutex for making thread-safe access to the shared state.
     // TODO: lf_mutex_t* mutex;
 }
@@ -1294,6 +1311,7 @@ impl RTICommon {
             max_stop_tag: Tag::never_tag(),
             num_scheduling_nodes_handling_stop: 0,
             tracing_enabled: false,
+            trace: Trace::trace_new(""),
         }
     }
 
@@ -1317,6 +1335,14 @@ impl RTICommon {
         self.num_scheduling_nodes_handling_stop
     }
 
+    pub fn tracing_enabled(&self) -> bool {
+        self.tracing_enabled
+    }
+
+    pub fn trace(&mut self) -> &mut Trace {
+        &mut self.trace
+    }
+
     pub fn set_max_stop_tag(&mut self, max_stop_tag: Tag) {
         self.max_stop_tag = max_stop_tag.clone();
     }
@@ -1330,6 +1356,14 @@ impl RTICommon {
         num_scheduling_nodes_handling_stop: i32,
     ) {
         self.num_scheduling_nodes_handling_stop = num_scheduling_nodes_handling_stop;
+    }
+
+    pub fn set_tracing_enabled(&mut self, tracing_enabled: bool) {
+        self.tracing_enabled = tracing_enabled;
+    }
+
+    pub fn set_trace(&mut self, trace: Trace) {
+        self.trace = trace;
     }
 }
 

@@ -18,6 +18,7 @@ mod net_common;
 mod net_util;
 mod server;
 mod tag;
+mod trace;
 
 use std::error::Error;
 
@@ -25,8 +26,11 @@ use crate::constants::*;
 use crate::federate_info::*;
 use crate::rti_common::*;
 use crate::rti_remote::*;
+use crate::trace::Trace;
 
 use server::Server;
+
+const RTI_TRACE_FILE_NAME: &str = "rti.lft";
 
 #[derive(PartialEq, PartialOrd, Clone)]
 pub enum ClockSyncStat {
@@ -124,6 +128,8 @@ pub fn process_args(rti: &mut RTIRemote, argv: &[String]) -> Result<(), &'static
             }
             idx += 1;
             // TODO: idx += process_clock_sync_args();
+        } else if arg == "-t" || arg == "--tracing" {
+            rti.base_mut().set_tracing_enabled(true);
         } else if arg == " " {
             // Tolerate spaces
             continue;
@@ -162,6 +168,7 @@ fn usage(argc: usize, argv: &[String]) {
     println!("          (period in nanoseconds, default is 5 msec). Only applies to 'on'.");
     println!("       - exchanges-per-interval <n>: Controls the number of messages that are exchanged for each");
     println!("          clock sync attempt (default is 10). Applies to 'init' and 'on'.");
+    println!("  -t, --tracing Turn on tracing.");
 
     println!("Command given:");
     let mut idx = 0;
@@ -172,6 +179,17 @@ fn usage(argc: usize, argv: &[String]) {
 }
 
 pub fn initialize_federates(rti: &mut RTIRemote) {
+    if rti.base().tracing_enabled() {
+        let _lf_number_of_workers = rti.base().number_of_scheduling_nodes();
+        rti.base_mut()
+            .set_trace(Trace::trace_new(RTI_TRACE_FILE_NAME));
+        Trace::start_trace(
+            rti.base_mut().trace(),
+            _lf_number_of_workers.try_into().unwrap(),
+        );
+        println!("Tracing the RTI execution in {} file.", RTI_TRACE_FILE_NAME);
+    }
+
     for i in 0..rti.base().number_of_scheduling_nodes() {
         let mut federate = FederateInfo::new();
         // FIXME: Handle "as u16" properly.
