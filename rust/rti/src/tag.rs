@@ -284,6 +284,34 @@ mod tests {
         assert_eq!(nv_tag, Tag::lf_tag_add(&t6, &t7));
         */
     }
+    
+    #[test]
+    fn test_lf_delay_tag() {
+        let t1 = Tag::new(NEVER, 0);
+        let t2 = Tag::new(FOREVER, 2);
+        let int_1: Interval = Some(2);
+        let int_2: Interval = Some(-2);
+        let t3  = Tag::new(34, 4);
+        let int_3: Interval = Some(0);
+
+        let fv_tag = Tag::forever_tag();
+
+        let mut r1 = Tag::new(0, 0);
+        let mut r2 = Tag::new(0, 0);
+
+        r1.set_time(t3.time());
+        r1.set_microstep(t3.microstep() + 1);
+
+        assert_eq!(t1, Tag::lf_delay_tag(&t1, int_1));
+        assert_eq!(t2, Tag::lf_delay_tag(&t2, int_2));
+        assert_eq!(fv_tag, Tag::lf_delay_tag(&t2, int_1));
+        assert_eq!(r1, Tag::lf_delay_tag(&t3, int_3));
+
+        r2.set_time(t3.time() + int_1.unwrap());
+        r2.set_microstep(0);
+        assert_eq!(r2, Tag::lf_delay_tag(&t3, int_1));
+
+    }
 
     #[test]
     fn test_lf_delay_strict() {
@@ -296,11 +324,14 @@ mod tests {
         let int_5: Interval = Some(34);
         let int_6: Interval = Some(0);
 
-        let mut r2 = Tag::new(0, 0);
         let mut r1 = Tag::new(0, 0);
+        let mut r2 = Tag::new(0, 0);
+        let mut r3 = Tag::new(0, 0);
+        let mut r4 = Tag::new(0, 0);
 
         let fv_tag = Tag::forever_tag();
         let nv_tag = Tag::never_tag();
+        let zr_tag = Tag::zero_tag();
 
         assert_eq!(t1, Tag::lf_delay_tag(&t1, int_1));
         assert_eq!(t2, Tag::lf_delay_tag(&t2, int_2));
@@ -320,6 +351,14 @@ mod tests {
         r1.set_microstep(t2.microstep() + 1);
 
         assert_eq!(r1, Tag::lf_delay_tag(&t2, int_6));
+        
+        r3.set_microstep(r3.microstep() + 1);
+        assert_eq!(r3, Tag::lf_delay_tag(&zr_tag, int_6));
+        
+        //TODO: Check why this is failing:
+        //r4.set_time(t2.time() - 1);
+        //r4.set_microstep(u32::MAX);
+        //assert_eq!(r4, Tag::lf_delay_tag(&t2, int_6));
     }
 
     #[test]
