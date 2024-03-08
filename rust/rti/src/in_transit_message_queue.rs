@@ -16,6 +16,7 @@ use crate::RTIRemote;
 
 use std::sync::{Arc, RwLock};
 
+#[derive(PartialEq)]
 pub struct InTransitMessageQueue {
     queue: PriorityQueue<Tag, usize>,
 }

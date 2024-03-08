@@ -1588,7 +1588,7 @@ mod tests {
         args.push(NUMBER_OF_FEDEATES.to_string());
         let _ = process_args(&mut rti, &args);
         initialize_federates(&mut rti);
-        let arc_rti = Arc::new(Mutex::new(rti));
+        let arc_rti = Arc::new(RwLock::new(rti));
         let cloned_rti = Arc::clone(&arc_rti);
         let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
         let cloned_sent_start_time = Arc::clone(&sent_start_time);
@@ -1610,7 +1610,7 @@ mod tests {
         args.push(NUMBER_OF_FEDEATES.to_string());
         let _ = process_args(&mut rti, &args);
         initialize_federates(&mut rti);
-        let arc_rti = Arc::new(Mutex::new(rti));
+        let arc_rti = Arc::new(RwLock::new(rti));
         let cloned_rti = Arc::clone(&arc_rti);
         let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
         let cloned_sent_start_time = Arc::clone(&sent_start_time);
@@ -1626,7 +1626,7 @@ mod tests {
         args.push(NUMBER_OF_FEDEATES.to_string());
         let _ = process_args(&mut rti, &args);
         initialize_federates(&mut rti);
-        let arc_rti = Arc::new(Mutex::new(rti));
+        let arc_rti = Arc::new(RwLock::new(rti));
         let cloned_rti = Arc::clone(&arc_rti);
         SchedulingNode::tag_advance_grant_if_safe(cloned_rti, 0, 0);
     }
@@ -1640,7 +1640,7 @@ mod tests {
         args.push(NUMBER_OF_FEDEATES.to_string());
         let _ = process_args(&mut rti, &args);
         initialize_federates(&mut rti);
-        let arc_rti = Arc::new(Mutex::new(rti));
+        let arc_rti = Arc::new(RwLock::new(rti));
         let cloned_rti = Arc::clone(&arc_rti);
         let result = SchedulingNode::is_in_zero_delay_cycle(cloned_rti, 0);
         assert!(result == false);
@@ -1655,7 +1655,7 @@ mod tests {
         args.push(NUMBER_OF_FEDEATES.to_string());
         let _ = process_args(&mut rti, &args);
         initialize_federates(&mut rti);
-        let arc_rti = Arc::new(Mutex::new(rti));
+        let arc_rti = Arc::new(RwLock::new(rti));
         let cloned_rti = Arc::clone(&arc_rti);
         let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
         let cloned_sent_start_time = Arc::clone(&sent_start_time);
@@ -1677,7 +1677,7 @@ mod tests {
         args.push(NUMBER_OF_FEDEATES.to_string());
         let _ = process_args(&mut rti, &args);
         initialize_federates(&mut rti);
-        let arc_rti = Arc::new(Mutex::new(rti));
+        let arc_rti = Arc::new(RwLock::new(rti));
         let cloned_rti = Arc::clone(&arc_rti);
         let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
         let cloned_sent_start_time = Arc::clone(&sent_start_time);
@@ -1700,7 +1700,7 @@ mod tests {
         args.push(NUMBER_OF_FEDEATES.to_string());
         let _ = process_args(&mut rti, &args);
         initialize_federates(&mut rti);
-        let arc_rti = Arc::new(Mutex::new(rti));
+        let arc_rti = Arc::new(RwLock::new(rti));
         let cloned_rti = Arc::clone(&arc_rti);
         SchedulingNode::earliest_future_incoming_message_tag(cloned_rti, 0, 0);
     }
@@ -1714,7 +1714,7 @@ mod tests {
         args.push(NUMBER_OF_FEDEATES.to_string());
         let _ = process_args(&mut rti, &args);
         initialize_federates(&mut rti);
-        let arc_rti = Arc::new(Mutex::new(rti));
+        let arc_rti = Arc::new(RwLock::new(rti));
         let cloned_rti = Arc::clone(&arc_rti);
         SchedulingNode::update_min_delays_upstream(cloned_rti, 0);
     }
@@ -1728,7 +1728,7 @@ mod tests {
         args.push(NUMBER_OF_FEDEATES.to_string());
         let _ = process_args(&mut rti, &args);
         initialize_federates(&mut rti);
-        let arc_rti = Arc::new(Mutex::new(rti));
+        let arc_rti = Arc::new(RwLock::new(rti));
         let cloned_rti = Arc::clone(&arc_rti);
         let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
         let cloned_sent_start_time = Arc::clone(&sent_start_time);
@@ -1741,11 +1741,11 @@ mod tests {
             Tag::never_tag(),
         );
     }
-    
+
     #[test]
     // TODO: Better tp seperate each assert into a unit test, respectively.
     fn test_rti_common_positive() {
-        let mut rti_common = RTICommon::new();
+        let rti_common = RTICommon::new();
         assert!(rti_common.scheduling_nodes().len() == 0);
         assert!(rti_common.number_of_scheduling_nodes() == 0);
         assert!(rti_common.max_stop_tag() == Tag::never_tag());

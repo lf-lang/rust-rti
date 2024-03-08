@@ -140,17 +140,17 @@ mod tests {
     }
 
     #[test]
-    fn test_e_positive() {
+    fn test_enclave_positive() {
         let federate_info = FederateInfo::new();
-        let e = federate_info.e();
-        assert!(e == &SchedulingNode::new());
+        let enclave = federate_info.enclave();
+        assert!(enclave == &SchedulingNode::new());
     }
 
     #[test]
-    fn test_enclave_positive() {
+    fn test_enclave_mut_positive() {
         let mut federate_info = FederateInfo::new();
-        let enclave = federate_info.enclave();
-        assert!(enclave == &SchedulingNode::new());
+        let enclave_mut = federate_info.enclave_mut();
+        assert!(enclave_mut == &mut SchedulingNode::new());
     }
 
     #[test]
@@ -176,10 +176,17 @@ mod tests {
     }
 
     #[test]
-    fn test_in_transit_message_tags_positive() {
+    fn test_in_transit_message_queue_positive() {
+        let federate_info = FederateInfo::new();
+        let in_transit_message_tags = federate_info.in_transit_message_queue();
+        assert!(in_transit_message_tags == &InTransitMessageQueue::new())
+    }
+
+    #[test]
+    fn test_in_transit_message_queue_mut_positive() {
         let mut federate_info = FederateInfo::new();
-        let in_transit_message_tags = federate_info.in_transit_message_tags();
-        assert!(in_transit_message_tags == &mut InTransitMessageRecordQueue::new())
+        let in_transit_message_tags = federate_info.in_transit_message_queue_mut();
+        assert!(in_transit_message_tags == &mut InTransitMessageQueue::new())
     }
 
     #[test]
