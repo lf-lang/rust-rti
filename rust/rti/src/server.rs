@@ -8,10 +8,11 @@
  */
 use std::io::Write;
 use std::mem;
-use std::net::{IpAddr, Shutdown, TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use crate::in_transit_message_queue::InTransitMessageQueue;
 use crate::net_common;
@@ -53,18 +54,54 @@ impl StopGranted {
 
 pub struct Server {
     port: String,
+    socket_type: SocketType,
 }
 
 impl Server {
-    pub fn create_server(port: String) -> Server {
-        // TODO: handle TCP and UDP cases
-        Server { port }
+    pub fn create_rti_server(
+        rti_remote: &mut RTIRemote,
+        port: u16,
+        socket_type: SocketType,
+    ) -> Server {
+        let mut type_str = String::from("TCP");
+        if socket_type == SocketType::UDP {
+            type_str = String::from("UDP");
+
+            let mut address = String::from("0.0.0.0:");
+            address.push_str(port.to_string().as_str());
+            // TODO: Handle unwrap() properly.
+            let socket = UdpSocket::bind(address).unwrap();
+            rti_remote.set_socket_descriptor_udp(Some(socket));
+        }
+        println!(
+            "RTI using {} port {} for federation {}.",
+            type_str,
+            port,
+            rti_remote.federation_id()
+        );
+
+        if socket_type == SocketType::TCP {
+            rti_remote.set_final_port_tcp(port);
+        } else if socket_type == SocketType::UDP {
+            rti_remote.set_final_port_udp(port);
+            // No need to listen on the UDP socket
+        }
+
+        Server {
+            port: port.to_string(),
+            socket_type,
+        }
+    }
+
+    pub fn socket_type(&self) -> SocketType {
+        self.socket_type.clone()
     }
 
     pub fn wait_for_federates(&mut self, _f_rti: RTIRemote) {
         println!("Server listening on port {}", self.port);
         let mut address = String::from("0.0.0.0:");
         address.push_str(self.port.as_str());
+        // TODO: Handle unwrap() properly.
         let socket = TcpListener::bind(address).unwrap();
         let start_time = Arc::new(Mutex::new(StartTime::new()));
         let received_start_times = Arc::new((Mutex::new(false), Condvar::new()));
@@ -187,7 +224,7 @@ impl Server {
                                     }
                                     // Read no more than one byte to get the message type.
                                     // FIXME: Handle unwrap properly.
-                                    let bytes_read = NetUtil::read_from_stream(
+                                    let bytes_read = NetUtil::read_from_socket(
                                         &mut stream,
                                         &mut buffer,
                                         fed_id.try_into().unwrap(),
@@ -324,24 +361,190 @@ impl Server {
         println!("All federates have connected to RTI.");
 
         let cloned_rti = Arc::clone(&arc_rti);
-        let locked_rti = cloned_rti.read().unwrap();
-        let clock_sync_global_status = locked_rti.clock_sync_global_status();
+        let clock_sync_global_status;
+        let number_of_scheduling_nodes;
+        let final_port_udp;
+        {
+            let locked_rti = cloned_rti.read().unwrap();
+            clock_sync_global_status = locked_rti.clock_sync_global_status();
+            number_of_scheduling_nodes = locked_rti.base().number_of_scheduling_nodes();
+            final_port_udp = locked_rti.final_port_udp();
+        }
         if clock_sync_global_status >= ClockSyncStat::ClockSyncOn {
             // Create the thread that performs periodic PTP clock synchronization sessions
             // over the UDP channel, but only if the UDP channel is open and at least one
             // federate_info is performing runtime clock synchronization.
             let mut clock_sync_enabled = false;
-            for i in 0..locked_rti.base().number_of_scheduling_nodes() {
-                if locked_rti.base().scheduling_nodes()[i as usize].clock_synchronization_enabled()
+            for i in 0..number_of_scheduling_nodes {
                 {
-                    clock_sync_enabled = true;
-                    break;
+                    let locked_rti = cloned_rti.read().unwrap();
+                    if locked_rti.base().scheduling_nodes()[i as usize]
+                        .clock_synchronization_enabled()
+                    {
+                        clock_sync_enabled = true;
+                        break;
+                    }
                 }
             }
-            if locked_rti.final_port_udp() != u16::MAX && clock_sync_enabled {
-                println!("\tNEED to create clock_synchronization_thread thread..");
-                // TODO: Implement the following.
-                // lf_thread_create(&_f_rti->clock_thread, clock_synchronization_thread, NULL);
+            // let cloned_start_time = Arc::clone(&start_time);
+            // let cloned_received_start_times = Arc::clone(&received_start_times);
+
+            if final_port_udp != u16::MAX && clock_sync_enabled {
+                let handle = thread::spawn(move || {
+                    // Wait until all federates have been notified of the start time.
+                    // FIXME: Use lf_ version of this when merged with master.
+                    {
+                        let locked_rti = cloned_rti.read().unwrap();
+                        while locked_rti.num_feds_proposed_start()
+                            < locked_rti.base().number_of_scheduling_nodes()
+                        {
+                            // Need to wait here.
+                            let received_start_times_notifier = Arc::clone(&received_start_times);
+                            let (lock, condvar) = &*received_start_times_notifier;
+                            let mut notified = lock.lock().unwrap();
+                            while !*notified {
+                                notified = condvar.wait(notified).unwrap();
+                            }
+                        }
+                    }
+
+                    // Wait until the start time before starting clock synchronization.
+                    // The above wait ensures that start_time has been set.
+                    let start_time_value;
+                    {
+                        let locked_start_time = start_time.lock().unwrap();
+                        start_time_value = locked_start_time.start_time();
+                    }
+                    let ns_to_wait = start_time_value - Tag::lf_time_physical();
+
+                    if ns_to_wait > 0 {
+                        // TODO: Handle unwrap() properly.
+                        let ns = Duration::from_nanos(ns_to_wait.try_into().unwrap());
+                        thread::sleep(ns);
+                    }
+
+                    // Initiate a clock synchronization every rti->clock_sync_period_ns
+                    // let sleep_time = {(time_t)rti_remote->clock_sync_period_ns / BILLION,
+                    //                               rti_remote->clock_sync_period_ns % BILLION};
+                    // let remaining_time;
+
+                    let mut any_federates_connected = true;
+                    while any_federates_connected {
+                        // Sleep
+                        let clock_sync_period_ns;
+                        let number_of_scheduling_nodes;
+                        {
+                            let locked_rti = cloned_rti.read().unwrap();
+                            clock_sync_period_ns = locked_rti.clock_sync_period_ns();
+                            number_of_scheduling_nodes =
+                                locked_rti.base().number_of_scheduling_nodes();
+                        }
+                        let ns = Duration::from_nanos(clock_sync_period_ns); // Can be interrupted
+                        thread::sleep(ns);
+                        any_federates_connected = false;
+                        for fed_id in 0..number_of_scheduling_nodes {
+                            let state;
+                            let clock_synchronization_enabled;
+                            {
+                                let locked_rti = cloned_rti.read().unwrap();
+                                let idx: usize = fed_id as usize;
+                                let fed = &locked_rti.base().scheduling_nodes()[idx];
+                                state = fed.enclave().state();
+                                clock_synchronization_enabled = fed.clock_synchronization_enabled();
+                            }
+                            if state == SchedulingNodeState::NotConnected {
+                                // FIXME: We need better error handling here, but clock sync failure
+                                // should not stop execution.
+                                println!(
+                                    "[ERROR] Clock sync failed with federate {}. Not connected.",
+                                    fed_id
+                                );
+                                continue;
+                            } else if !clock_synchronization_enabled {
+                                continue;
+                            }
+                            // Send the RTI's current physical time to the federate
+                            // Send on UDP.
+                            println!(
+                                "[DEBUG] RTI sending T1 message to initiate clock sync round."
+                            );
+                            // TODO: Handle unwrap() properly.
+                            Self::send_physical_clock_with_udp(
+                                fed_id.try_into().unwrap(),
+                                cloned_rti.clone(),
+                                MsgType::ClockSyncT1.to_byte(),
+                            );
+
+                            // Listen for reply message, which should be T3.
+                            let message_size = 1 + std::mem::size_of::<i32>();
+                            let mut buffer = vec![0 as u8; message_size];
+                            // Maximum number of messages that we discard before giving up on this cycle.
+                            // If the T3 message from this federate does not arrive and we keep receiving
+                            // other messages, then give up on this federate and move to the next federate.
+                            let mut remaining_attempts = 5;
+                            while remaining_attempts > 0 {
+                                remaining_attempts -= 1;
+                                let mut read_failed = true;
+                                {
+                                    let mut locked_rti = cloned_rti.write().unwrap();
+                                    // TODO: Handle unwrap() properly.
+                                    let udp_socket =
+                                        locked_rti.socket_descriptor_udp().as_mut().unwrap();
+                                    match udp_socket.recv(&mut buffer) {
+                                        Ok(read_bytes) => {
+                                            if read_bytes > 0 {
+                                                read_failed = false;
+                                            }
+                                        }
+                                        Err(..) => {
+                                            println!("[ERROR] Failed to read from an UDP socket.");
+                                        }
+                                    }
+                                }
+                                // If any errors occur, either discard the message or the clock sync round.
+                                if !read_failed {
+                                    if buffer[0] == MsgType::ClockSyncT3.to_byte() {
+                                        // TODO: Change from_le_bytes properly.
+                                        let fed_id_2 = i32::from_le_bytes(
+                                            buffer[1..1 + std::mem::size_of::<i32>()]
+                                                .try_into()
+                                                .unwrap(),
+                                        );
+                                        // Check that this message came from the correct federate.
+                                        if fed_id_2 != fed_id {
+                                            // Message is from the wrong federate. Discard the message.
+                                            println!("[WARNING] Clock sync: Received T3 message from federate {}, but expected one from {}. Discarding message.",
+                                                        fed_id_2, fed_id);
+                                            continue;
+                                        }
+                                        println!("[DEBUG] Clock sync: RTI received T3 message from federate {}.", fed_id_2);
+                                        // TODO: Handle unwrap() properly.
+                                        Self::handle_physical_clock_sync_message_with_udp(
+                                            fed_id_2.try_into().unwrap(),
+                                            cloned_rti.clone(),
+                                        );
+                                        break;
+                                    } else {
+                                        // The message is not a T3 message. Discard the message and
+                                        // continue waiting for the T3 message. This is possibly a message
+                                        // from a previous cycle that was discarded.
+                                        println!("[WARNING] Clock sync: Unexpected UDP message {}. Expected MsgType::ClockSyncT3 from federate {}. Discarding message.",
+                                                    buffer[0], fed_id);
+                                        continue;
+                                    }
+                                } else {
+                                    println!("[WARNING] Clock sync: Read from UDP socket failed: Skipping clock sync round for federate {}.",
+                                                fed_id);
+                                    remaining_attempts -= 1;
+                                }
+                            }
+                            if remaining_attempts > 0 {
+                                any_federates_connected = true;
+                            }
+                        }
+                    }
+                });
+                handle_list.push(handle);
             }
         }
 
@@ -591,6 +794,7 @@ impl Server {
             fed_id
         );
         let cloned_rti = Arc::clone(&_f_rti);
+        // TODO: Handle unwrap() properly.
         let mut connection_info_header =
             vec![0 as u8; MSG_TYPE_NEIGHBOR_STRUCTURE_HEADER_SIZE.try_into().unwrap()];
         NetUtil::read_from_socket_fail_on_error(
@@ -708,9 +912,11 @@ impl Server {
         } else {
             let cloned_rti = Arc::clone(&_f_rti);
             let clock_sync_global_status;
+            let clock_sync_exchanges_per_interval;
             {
                 let locked_rti = cloned_rti.read().unwrap();
                 clock_sync_global_status = locked_rti.clock_sync_global_status();
+                clock_sync_exchanges_per_interval = locked_rti.clock_sync_exchanges_per_interval();
             }
 
             if clock_sync_global_status >= ClockSyncStat::ClockSyncInit {
@@ -725,9 +931,52 @@ impl Server {
                 );
                 // A port number of UINT16_MAX means initial clock sync should not be performed.
                 if federate_udp_port_number != u16::MAX {
-                    // TODO: Implement this if body
+                    // Perform the initialization clock synchronization with the federate.
+                    // Send the required number of messages for clock synchronization
+                    for _i in 0..clock_sync_exchanges_per_interval {
+                        // Send the RTI's current physical time T1 to the federate.
+                        Self::send_physical_clock_with_tcp(
+                            fed_id,
+                            _f_rti.clone(),
+                            MsgType::ClockSyncT1.to_byte(),
+                            stream,
+                        );
+
+                        // Listen for reply message, which should be T3.
+                        let message_size = 1 + std::mem::size_of::<i32>();
+                        let mut buffer = vec![0 as u8; message_size];
+                        NetUtil::read_from_socket_fail_on_error(
+                            stream,
+                            &mut buffer,
+                            fed_id,
+                            "T3 messages",
+                        );
+                        if buffer[0] == MsgType::ClockSyncT3.to_byte() {
+                            let fed_id = i32::from_le_bytes(
+                                buffer[1..1 + std::mem::size_of::<i32>()]
+                                    .try_into()
+                                    .unwrap(),
+                            );
+                            println!(
+                                "[DEBUG] RTI received T3 clock sync message from federate {}.",
+                                fed_id
+                            );
+                            Self::handle_physical_clock_sync_message_with_tcp(
+                                fed_id.try_into().unwrap(),
+                                cloned_rti.clone(),
+                                stream,
+                            );
+                        } else {
+                            println!(
+                                "[ERROR] Unexpected message {} from federate {}.",
+                                buffer[0], fed_id
+                            );
+                            Self::send_reject(stream, ErrType::UnexpectedMessage.to_byte());
+                            return false;
+                        }
+                    }
                     println!(
-                        "RTI finished initial clock synchronization with federate_info {}.",
+                        "[DEBUG] RTI finished initial clock synchronization with federate {}.",
                         fed_id
                     );
                 }
@@ -735,10 +984,14 @@ impl Server {
                     // If no runtime clock sync, no need to set up the UDP port.
                     if federate_udp_port_number > 0 {
                         // Initialize the UDP_addr field of the federate_info struct
-                        // TODO: Handle below assignments
-                        // fed.UDP_addr.sin_family = AF_INET;
-                        // fed.UDP_addr.sin_port = htons(federate_udp_port_number);
-                        // fed.UDP_addr.sin_addr = fed->server_ip_addr;
+                        let mut locked_rti = cloned_rti.write().unwrap();
+                        let idx: usize = fed_id.into();
+                        let fed: &mut FederateInfo =
+                            &mut locked_rti.base_mut().scheduling_nodes_mut()[idx];
+                        fed.set_udp_addr(SocketAddr::new(
+                            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                            federate_udp_port_number,
+                        ));
                     }
                 } else {
                     // Disable clock sync after initial round.
@@ -776,7 +1029,7 @@ impl Server {
     ) {
         let mut buffer = vec![0 as u8; mem::size_of::<i64>()];
         // Read bytes from the socket. We need 8 bytes.
-        let bytes_read = NetUtil::read_from_stream(stream, &mut buffer, fed_id);
+        let bytes_read = NetUtil::read_from_socket(stream, &mut buffer, fed_id);
         if bytes_read < mem::size_of::<i64>() {
             println!("ERROR reading timestamp from federate_info {}.", fed_id);
         }
@@ -806,6 +1059,10 @@ impl Server {
                 locked_rti.set_max_start_time(timestamp);
             }
         }
+        println!(
+            "num_feds_proposed_start = {}, number_of_enclaves = {}",
+            num_feds_proposed_start, number_of_enclaves
+        );
         if num_feds_proposed_start == number_of_enclaves {
             // All federates have proposed a start time.
             let received_start_times_notifier = Arc::clone(&received_start_times);
@@ -2019,5 +2276,111 @@ impl Server {
                 "message",
             );
         }
+    }
+
+    fn send_physical_clock_with_udp(fed_id: u16, _f_rti: Arc<RwLock<RTIRemote>>, message_type: u8) {
+        let state;
+        {
+            let locked_rti = _f_rti.read().unwrap();
+            let idx: usize = fed_id.into();
+            let fed = &locked_rti.base().scheduling_nodes()[idx];
+            state = fed.enclave().state();
+        }
+        if state == SchedulingNodeState::NotConnected {
+            println!("[WARNING] Clock sync: RTI failed to send physical time to federate {}. Socket not connected.\n",
+                            fed_id);
+            return;
+        }
+        let mut buffer = vec![0 as u8; std::mem::size_of::<i64>() + 1];
+        buffer[0] = message_type;
+        let current_physical_time = Tag::lf_time_physical();
+        NetUtil::encode_int64(current_physical_time, &mut buffer, 1);
+
+        // Send the message
+        println!(
+            "[DEBUG] Clock sync: RTI sending UDP message type {}.",
+            buffer[0]
+        );
+        {
+            let mut locked_rti = _f_rti.write().unwrap();
+            let idx: usize = fed_id.into();
+            let fed = &locked_rti.base().scheduling_nodes()[idx];
+            // FIXME: udp_addr is initialized as 0.0.0.0.
+            let udp_addr = fed.udp_addr();
+            let socket = locked_rti.socket_descriptor_udp().as_mut().unwrap();
+            match socket.send_to(&buffer, udp_addr) {
+                Ok(bytes_written) => {
+                    if bytes_written < 1 + std::mem::size_of::<i64>() {
+                        println!("[WARNING] Clock sync: RTI failed to send physical time to federate {}: \n", fed_id);
+                        return;
+                    }
+                }
+                Err(_) => {
+                    println!("Failed to send an UDP message.");
+                    return;
+                }
+            }
+        }
+        println!("[DEBUG] Clock sync: RTI sent PHYSICAL_TIME_SYNC_MESSAGE with timestamp ({}) to federate {}.",
+                    current_physical_time, fed_id);
+    }
+
+    fn handle_physical_clock_sync_message_with_udp(fed_id: u16, _f_rti: Arc<RwLock<RTIRemote>>) {
+        // Reply with a T4 type message
+        Self::send_physical_clock_with_udp(fed_id, _f_rti.clone(), MsgType::ClockSyncT4.to_byte());
+        // Send the corresponding coded probe immediately after,
+        // but only if this is a UDP channel.
+        Self::send_physical_clock_with_udp(
+            fed_id,
+            _f_rti.clone(),
+            MsgType::ClockSyncCodedProbe.to_byte(),
+        );
+    }
+
+    fn send_physical_clock_with_tcp(
+        fed_id: u16,
+        _f_rti: Arc<RwLock<RTIRemote>>,
+        message_type: u8,
+        stream: &mut TcpStream,
+    ) {
+        let state;
+        {
+            let locked_rti = _f_rti.read().unwrap();
+            let idx: usize = fed_id.into();
+            let fed = &locked_rti.base().scheduling_nodes()[idx];
+            state = fed.enclave().state();
+        }
+        if state == SchedulingNodeState::NotConnected {
+            println!("[WARNING] Clock sync: RTI failed to send physical time to federate {}. Socket not connected.\n",
+                            fed_id);
+            return;
+        }
+        let mut buffer = vec![0 as u8; std::mem::size_of::<i64>() + 1];
+        buffer[0] = message_type;
+        let current_physical_time = Tag::lf_time_physical();
+        NetUtil::encode_int64(current_physical_time, &mut buffer, 1);
+
+        // Send the message
+        println!(
+            "[DEBUG] Clock sync:  RTI sending TCP message type {}.",
+            buffer[0]
+        );
+        NetUtil::write_to_socket_fail_on_error(stream, &buffer, fed_id, "physical time");
+        println!("[DEBUG] Clock sync: RTI sent PHYSICAL_TIME_SYNC_MESSAGE with timestamp ({}) to federate {}.",
+                    current_physical_time, fed_id);
+    }
+
+    fn handle_physical_clock_sync_message_with_tcp(
+        fed_id: u16,
+        _f_rti: Arc<RwLock<RTIRemote>>,
+        stream: &mut TcpStream,
+    ) {
+        // Reply with a T4 type message
+        Self::send_physical_clock_with_tcp(
+            fed_id,
+            _f_rti.clone(),
+            MsgType::ClockSyncT4.to_byte(),
+            stream,
+        );
     }
 }

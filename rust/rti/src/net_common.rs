@@ -103,6 +103,10 @@ pub enum MsgType {
     AddressAdvertisement,
     P2pSendingFedId,
     P2pTaggedMessage,
+    ClockSyncT1,
+    ClockSyncT3,
+    ClockSyncT4,
+    ClockSyncCodedProbe,
     PortAbsent,
     NeighborStructure,
     Ignore,
@@ -129,6 +133,10 @@ impl MsgType {
             MsgType::AddressAdvertisement => 14,
             MsgType::P2pSendingFedId => 15,
             MsgType::P2pTaggedMessage => 17,
+            MsgType::ClockSyncT1 => 19,
+            MsgType::ClockSyncT3 => 20,
+            MsgType::ClockSyncT4 => 21,
+            MsgType::ClockSyncCodedProbe => 22,
             MsgType::PortAbsent => 23,
             MsgType::NeighborStructure => 24,
             MsgType::Ignore => 250,
@@ -150,6 +158,10 @@ impl MsgType {
             12 => MsgType::StopGranted,
             13 => MsgType::AddressQuery,
             14 => MsgType::AddressAdvertisement,
+            19 => MsgType::ClockSyncT1,
+            20 => MsgType::ClockSyncT3,
+            21 => MsgType::ClockSyncT4,
+            22 => MsgType::ClockSyncCodedProbe,
             23 => MsgType::PortAbsent,
             _ => MsgType::Ignore,
         }
@@ -181,6 +193,12 @@ impl ErrType {
             ErrType::WrongServer => 5,
         }
     }
+}
+
+#[derive(PartialEq, Clone)]
+pub enum SocketType {
+    TCP,
+    UDP,
 }
 
 #[cfg(test)]

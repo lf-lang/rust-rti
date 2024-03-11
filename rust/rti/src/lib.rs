@@ -21,6 +21,7 @@ use std::error::Error;
 
 use crate::constants::*;
 use crate::federate_info::*;
+use crate::net_common::SocketType;
 use crate::rti_common::*;
 use crate::rti_remote::*;
 use crate::trace::Trace;
@@ -29,7 +30,7 @@ use server::Server;
 
 const RTI_TRACE_FILE_NAME: &str = "rti.lft";
 
-#[derive(PartialEq, PartialOrd, Clone)]
+#[derive(PartialEq, PartialOrd, Clone, Debug)]
 pub enum ClockSyncStat {
     ClockSyncOff,
     ClockSyncInit,
@@ -49,10 +50,8 @@ impl ClockSyncStat {
 pub fn process_args(rti: &mut RTIRemote, argv: &[String]) -> Result<(), &'static str> {
     let mut idx = 1;
     let argc = argv.len();
-    // println!("argv = {:?}", argv);
     while idx < argc {
         let arg = argv[idx].as_str();
-        // println!("arg = {}", arg); // TODO: Remove this debugging code
         if arg == "-i" || arg == "--id" {
             if argc < idx + 2 {
                 println!("--id needs a string argument.");
@@ -60,7 +59,6 @@ pub fn process_args(rti: &mut RTIRemote, argv: &[String]) -> Result<(), &'static
                 return Err("Fail to handle id option");
             }
             idx += 1;
-            // println!("idx = {}", idx); // TODO: Remove this debugging code
             println!("RTI: Federation ID: {}", arg);
             rti.set_federation_id(argv[idx].clone());
         } else if arg == "-n" || arg == "--number_of_federates" {
@@ -125,7 +123,7 @@ pub fn process_args(rti: &mut RTIRemote, argv: &[String]) -> Result<(), &'static
                 return Err("Fail to handle clock_sync option");
             }
             idx += 1;
-            // TODO: idx += process_clock_sync_args();
+            idx += process_clock_sync_args(rti, argc - idx, &argv[idx..]);
         } else if arg == "-t" || arg == "--tracing" {
             rti.base_mut().set_tracing_enabled(true);
         } else if arg == " " {
@@ -175,6 +173,84 @@ fn usage(argc: usize, argv: &[String]) {
     }
 }
 
+/**
+ * Process command-line arguments related to clock synchronization. Will return
+ * the last read position of argv if all related arguments are parsed or an
+ * invalid argument is read.
+ */
+fn process_clock_sync_args(rti: &mut RTIRemote, argc: usize, argv: &[String]) -> usize {
+    for mut i in 0..argc {
+        let arg = argv[i].as_str();
+        if arg == "off" {
+            rti.set_clock_sync_global_status(ClockSyncStat::ClockSyncOff);
+            println!("RTI: Clock sync: off");
+        } else if arg == "init" || arg == "initial" {
+            rti.set_clock_sync_global_status(ClockSyncStat::ClockSyncInit);
+            println!("RTI: Clock sync: init");
+        } else if arg == "on" {
+            rti.set_clock_sync_global_status(ClockSyncStat::ClockSyncOn);
+            println!("RTI: Clock sync: on");
+        } else if arg == "period" {
+            if rti.clock_sync_global_status() != ClockSyncStat::ClockSyncOn {
+                println!("[ERROR] clock sync period can only be set if --clock-sync is set to on.");
+                usage(argc, argv);
+                i += 1;
+                continue; // Try to parse the rest of the arguments as clock sync args.
+            } else if argc < i + 2 {
+                println!("[ERROR] clock sync period needs a time (in nanoseconds) argument.");
+                usage(argc, argv);
+                continue;
+            }
+            i += 1;
+            match argv[i].as_str().parse::<u64>() {
+                Ok(period_ns) => {
+                    if period_ns == 0 || period_ns == u64::MAX {
+                        println!("[ERROR] clock sync period value is invalid.");
+                        continue; // Try to parse the rest of the arguments as clock sync args.
+                    }
+                    rti.set_clock_sync_period_ns(period_ns);
+                    println!("RTI: Clock sync period: {}", rti.clock_sync_period_ns());
+                }
+                Err(_) => {
+                    println!("Failed to parse clock sync period.");
+                }
+            }
+        } else if argv[i] == "exchanges-per-interval" {
+            if rti.clock_sync_global_status() != ClockSyncStat::ClockSyncOn
+                && rti.clock_sync_global_status() != ClockSyncStat::ClockSyncInit
+            {
+                println!("[ERROR] clock sync exchanges-per-interval can only be set if\n--clock-sync is set to on or init.");
+                usage(argc, argv);
+                continue; // Try to parse the rest of the arguments as clock sync args.
+            } else if argc < i + 2 {
+                println!("[ERROR] clock sync exchanges-per-interval needs an integer argument.");
+                usage(argc, argv);
+                continue; // Try to parse the rest of the arguments as clock sync args.
+            }
+            i += 1;
+            let exchanges: u32 = 10;
+            if exchanges == 0 || exchanges == u32::MAX || exchanges == u32::MIN {
+                println!("[ERROR] clock sync exchanges-per-interval value is invalid.");
+                continue; // Try to parse the rest of the arguments as clock sync args.
+            }
+            rti.set_clock_sync_exchanges_per_interval(exchanges); // FIXME: Loses numbers on 64-bit machines
+            println!(
+                "RTI: Clock sync exchanges per interval: {}",
+                rti.clock_sync_exchanges_per_interval()
+            );
+        } else if arg == " " {
+            // Tolerate spaces
+            continue;
+        } else {
+            // Either done with the clock sync args or there is an invalid
+            // character. In  either case, let the parent function deal with
+            // the rest of the characters;
+            return i;
+        }
+    }
+    argc
+}
+
 pub fn initialize_federates(rti: &mut RTIRemote) {
     if rti.base().tracing_enabled() {
         let _lf_number_of_workers = rti.base().number_of_scheduling_nodes();
@@ -205,27 +281,16 @@ fn initialize_federate(fed: &mut FederateInfo, id: u16) {
 
 pub fn start_rti_server(_f_rti: &mut RTIRemote) -> Result<Server, Box<dyn Error>> {
     // TODO: _lf_initialize_clock();
-    Ok(Server::create_server(
-        _f_rti.user_specified_port().to_string(),
-    ))
+    let server = Server::create_rti_server(_f_rti, _f_rti.user_specified_port(), SocketType::TCP);
+    if _f_rti.clock_sync_global_status() >= ClockSyncStat::ClockSyncOn {
+        let final_tcp_port = u16::from(_f_rti.final_port_tcp());
+        Server::create_rti_server(_f_rti, final_tcp_port + 1, SocketType::UDP);
+    }
+    Ok(server)
 }
 
 /**
- * Process command-line arguments related to clock synchronization. Will return
- * the last read position of argv if all related arguments are parsed or an
- * invalid argument is read.
- *
- * @param argc: Number of arguments in the list
- * @param argv: The list of arguments as a string
- * @return Current position (head) of argv;
- */
-// TODO: implement this function
-// fn process_clock_sync_args(_argc: i32, _argv: &[String]) -> i32 {
-//     0
-// }
-
-/**
- * Initialize the _RTI instance.
+ * Initialize the RTI instance.
  */
 pub fn initialize_rti() -> RTIRemote {
     RTIRemote::new()
