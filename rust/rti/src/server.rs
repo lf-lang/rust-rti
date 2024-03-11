@@ -13,14 +13,13 @@ use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
 
-use crate::message_record::message_record::MessageRecord;
+use crate::in_transit_message_queue::InTransitMessageQueue;
 use crate::net_common;
 use crate::net_common::*;
 use crate::net_util::*;
 use crate::tag;
 use crate::tag::*;
-use crate::trace::TraceDirection;
-use crate::trace::TraceEvent;
+use crate::trace::{TraceDirection, TraceEvent};
 use crate::ClockSyncStat;
 use crate::FederateInfo;
 use crate::RTIRemote;
@@ -1200,12 +1199,9 @@ impl Server {
         // Record this in-transit message in federate_info's in-transit message queue.
         if Tag::lf_tag_compare(&completed, &intended_tag) < 0 {
             // Add a record of this message to the list of in-transit messages to this federate_info.
-            let mut locked_rti = _f_rti.write().unwrap();
-            let idx: usize = federate_id.into();
-            let fed: &mut FederateInfo = &mut locked_rti.base_mut().scheduling_nodes_mut()[idx];
-            // TODO: Replace 'MessageRecord::add_in_transit_message_record()' into 'pqueue_tag_insert_if_no_match()'.
-            MessageRecord::add_in_transit_message_record(
-                fed.in_transit_message_tags(),
+            InTransitMessageQueue::insert_if_no_match_tag(
+                _f_rti.clone(),
+                federate_id,
                 intended_tag.clone(),
             );
             println!(
@@ -1247,16 +1243,7 @@ impl Server {
         start_time: Instant,
         sent_start_time: Arc<(Mutex<bool>, Condvar)>,
     ) {
-        let min_in_transit_tag;
-        {
-            let mut locked_rti = _f_rti.write().unwrap();
-            let idx: usize = fed_id.into();
-            let fed: &mut FederateInfo = &mut locked_rti.base_mut().scheduling_nodes_mut()[idx];
-            min_in_transit_tag = MessageRecord::get_minimum_in_transit_message_tag(
-                fed.in_transit_message_tags(),
-                start_time,
-            );
-        }
+        let min_in_transit_tag = InTransitMessageQueue::peek_tag(_f_rti.clone(), fed_id);
         if Tag::lf_tag_compare(&min_in_transit_tag, &next_event_tag) < 0 {
             next_event_tag = min_in_transit_tag.clone();
         }
@@ -1373,18 +1360,7 @@ impl Server {
         );
 
         // See if we can remove any of the recorded in-transit messages for this.
-        {
-            let mut locked_rti = _f_rti.write().unwrap();
-            let idx: usize = fed_id.into();
-            let fed: &mut FederateInfo = &mut locked_rti.base_mut().scheduling_nodes_mut()[idx];
-            let in_transit_message_tags = fed.in_transit_message_tags();
-            // TODO: Replace 'MessageRecord::clean_in_transit_message_record_up_to_tag()' into 'pqueue_tag_remove_up_to()'.
-            MessageRecord::clean_in_transit_message_record_up_to_tag(
-                in_transit_message_tags,
-                completed,
-                start_time_value,
-            );
-        }
+        InTransitMessageQueue::remove_up_to(_f_rti.clone(), fed_id, completed);
     }
 
     fn handle_stop_request_message(

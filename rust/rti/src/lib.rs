@@ -8,14 +8,11 @@
  */
 mod constants;
 mod federate_info;
-mod rti_common;
-mod rti_remote;
-mod message_record {
-    pub mod message_record;
-    pub mod rti_pqueue_support;
-}
+mod in_transit_message_queue;
 mod net_common;
 mod net_util;
+mod rti_common;
+mod rti_remote;
 mod server;
 mod tag;
 mod trace;
