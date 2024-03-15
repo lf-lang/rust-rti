@@ -162,11 +162,81 @@ impl RTIRemote {
         self.federation_id = federation_id;
     }
 
+    // set_user_specified_port
     pub fn set_port(&mut self, user_specified_port: u16) {
         self.user_specified_port = user_specified_port;
     }
 
     pub fn set_stop_in_progress(&mut self, stop_in_progress: bool) {
         self.stop_in_progress = stop_in_progress;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use rand::distributions::Alphanumeric;
+    use rand::Rng;
+
+    const FEDERATION_ID_MAX_SIZE: usize = 256;
+
+    #[test]
+    // TODO: Better tp seperate each assert into a unit test, respectively.
+    fn test_rti_remote_positive() {
+        let rti_remote = RTIRemote::new();
+        assert!(rti_remote.max_start_time() == 0);
+        assert!(rti_remote.num_feds_proposed_start() == 0);
+        assert!(rti_remote.federation_id() == "Unidentified Federation");
+        assert!(rti_remote.user_specified_port() == STARTING_PORT);
+        assert!(rti_remote.final_port_udp() == u16::MAX);
+        assert!(rti_remote.clock_sync_global_status() == ClockSyncStat::ClockSyncInit);
+        assert!(rti_remote.stop_in_progress() == false);
+    }
+
+    #[test]
+    fn test_set_max_start_time_positive() {
+        let mut rti_remote = RTIRemote::new();
+        let mut rng = rand::thread_rng();
+        let max_start_time: i64 = rng.gen_range(0..i64::MAX);
+        rti_remote.set_max_start_time(max_start_time);
+        assert!(rti_remote.max_start_time() == max_start_time);
+    }
+
+    #[test]
+    fn test_set_num_feds_proposed_start_positive() {
+        let mut rti_remote = RTIRemote::new();
+        let mut rng = rand::thread_rng();
+        let num_feds_proposed_start: i32 = rng.gen_range(0..i32::MAX);
+        rti_remote.set_num_feds_proposed_start(num_feds_proposed_start);
+        assert!(rti_remote.num_feds_proposed_start() == num_feds_proposed_start);
+    }
+
+    #[test]
+    fn test_set_federation_id_positive() {
+        let mut rti_remote = RTIRemote::new();
+        let federation_id: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(FEDERATION_ID_MAX_SIZE)
+            .map(char::from)
+            .collect();
+        rti_remote.set_federation_id(federation_id.clone());
+        assert!(rti_remote.federation_id() == federation_id);
+    }
+
+    #[test]
+    fn test_set_user_specified_port_positive() {
+        let mut rti_remote = RTIRemote::new();
+        let mut rng = rand::thread_rng();
+        let user_specified_port: u16 = rng.gen_range(0..u16::MAX);
+        rti_remote.set_port(user_specified_port);
+        assert!(rti_remote.user_specified_port() == user_specified_port);
+    }
+
+    #[test]
+    fn test_set_stop_in_progress_positive() {
+        let mut rti_remote = RTIRemote::new();
+        rti_remote.set_stop_in_progress(true);
+        assert!(rti_remote.stop_in_progress() == true);
     }
 }

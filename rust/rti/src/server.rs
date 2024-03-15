@@ -859,7 +859,7 @@ impl Server {
             let idx: usize = fed_id.into();
             let my_fed: &mut FederateInfo = &mut locked_rti.base_mut().scheduling_nodes_mut()[idx];
             let stream = my_fed.stream().as_ref().unwrap();
-            let bytes_written = NetUtil::write_to_stream(stream, &start_time_buffer, fed_id);
+            let bytes_written = NetUtil::write_to_socket(stream, &start_time_buffer, fed_id);
             if bytes_written < MSG_TYPE_TIMESTAMP_LENGTH {
                 println!(
                     "Failed to send the starting time to federate_info {}.",

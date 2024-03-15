@@ -9,3 +9,5 @@ edition = "2021"
 byteorder = "1"
 priority-queue = "2.0.2"
 zerocopy = { version = "0.7.32", features = ["derive"] }
+socket-server-mocker = "0.0.4"
+rand = "0.8"

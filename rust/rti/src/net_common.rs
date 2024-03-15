@@ -85,7 +85,7 @@ pub const MSG_TYPE_STOP_GRANTED_LENGTH: usize =
 
 pub const MSG_TYPE_NEIGHBOR_STRUCTURE_HEADER_SIZE: i32 = 9;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum MsgType {
     Reject,
     FedIds,
@@ -180,5 +180,195 @@ impl ErrType {
             ErrType::UnexpectedMessage => 4,
             ErrType::WrongServer => 5,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_to_byte_reject_positive() {
+        assert!(MsgType::Reject.to_byte() == 0);
+    }
+
+    #[test]
+    fn test_to_byte_fed_ids_positive() {
+        assert!(MsgType::FedIds.to_byte() == 1);
+    }
+
+    #[test]
+    fn test_to_byte_timestamp_positive() {
+        assert!(MsgType::Timestamp.to_byte() == 2);
+    }
+
+    #[test]
+    fn test_to_byte_resign_positive() {
+        assert!(MsgType::Resign.to_byte() == 4);
+    }
+
+    #[test]
+    fn test_to_byte_tagged_message_positive() {
+        assert!(MsgType::TaggedMessage.to_byte() == 5);
+    }
+
+    #[test]
+    fn test_to_byte_next_event_tag_positive() {
+        assert!(MsgType::NextEventTag.to_byte() == 6);
+    }
+
+    #[test]
+    fn test_to_byte_tag_advance_grant_positive() {
+        assert!(MsgType::TagAdvanceGrant.to_byte() == 7);
+    }
+
+    #[test]
+    fn test_to_byte_propositional_tag_advance_grant_positive() {
+        assert!(MsgType::PropositionalTagAdvanceGrant.to_byte() == 8);
+    }
+
+    #[test]
+    fn test_to_byte_logical_tag_complete_positive() {
+        assert!(MsgType::LatestTagComplete.to_byte() == 9);
+    }
+
+    #[test]
+    fn test_to_byte_stop_request_positive() {
+        assert!(MsgType::StopRequest.to_byte() == 10);
+    }
+
+    #[test]
+    fn test_to_byte_stop_request_reply_positive() {
+        assert!(MsgType::StopRequestReply.to_byte() == 11);
+    }
+
+    #[test]
+    fn test_to_byte_stop_granted_positive() {
+        assert!(MsgType::StopGranted.to_byte() == 12);
+    }
+
+    #[test]
+    fn test_to_byte_address_query_positive() {
+        assert!(MsgType::AddressQuery.to_byte() == 13);
+    }
+
+    #[test]
+    fn test_to_byte_p2p_sending_fed_id_positive() {
+        assert!(MsgType::P2pSendingFedId.to_byte() == 15);
+    }
+
+    #[test]
+    fn test_to_byte_p2p_tagged_message_positive() {
+        assert!(MsgType::P2pTaggedMessage.to_byte() == 17);
+    }
+
+    #[test]
+    fn test_to_byte_port_absent_positive() {
+        assert!(MsgType::PortAbsent.to_byte() == 23);
+    }
+
+    #[test]
+    fn test_to_byte_neighbor_structure_positive() {
+        assert!(MsgType::NeighborStructure.to_byte() == 24);
+    }
+
+    #[test]
+    fn test_to_byte_ignore_positive() {
+        assert!(MsgType::Ignore.to_byte() == 250);
+    }
+
+    #[test]
+    fn test_to_byte_udp_port_positive() {
+        assert!(MsgType::UdpPort.to_byte() == 254);
+    }
+
+    #[test]
+    fn test_to_byte_ack_positive() {
+        assert!(MsgType::Ack.to_byte() == 255);
+    }
+
+    #[test]
+    fn test_to_msg_type_timestamp_positive() {
+        assert!(MsgType::to_msg_type(2) == MsgType::Timestamp);
+    }
+
+    #[test]
+    fn test_to_msg_type_resign_positive() {
+        assert!(MsgType::to_msg_type(4) == MsgType::Resign);
+    }
+
+    #[test]
+    fn test_to_msg_type_tagged_message_positive() {
+        assert!(MsgType::to_msg_type(5) == MsgType::TaggedMessage);
+    }
+
+    #[test]
+    fn test_to_msg_type_next_event_tag_positive() {
+        assert!(MsgType::to_msg_type(6) == MsgType::NextEventTag);
+    }
+
+    #[test]
+    fn test_to_msg_type_propositional_tag_advance_grant_positive() {
+        assert!(MsgType::to_msg_type(8) == MsgType::PropositionalTagAdvanceGrant);
+    }
+
+    #[test]
+    fn test_to_msg_type_latest_tag_complete_positive() {
+        assert!(MsgType::to_msg_type(9) == MsgType::LatestTagComplete);
+    }
+
+    #[test]
+    fn test_to_msg_type_stop_request_positive() {
+        assert!(MsgType::to_msg_type(10) == MsgType::StopRequest);
+    }
+
+    #[test]
+    fn test_to_msg_type_stop_request_reply_positive() {
+        assert!(MsgType::to_msg_type(11) == MsgType::StopRequestReply);
+    }
+
+    #[test]
+    fn test_to_msg_type_stop_granted_positive() {
+        assert!(MsgType::to_msg_type(12) == MsgType::StopGranted);
+    }
+
+    #[test]
+    fn test_to_msg_type_address_query_positive() {
+        assert!(MsgType::to_msg_type(13) == MsgType::AddressQuery);
+    }
+
+    #[test]
+    fn test_to_msg_type_port_absent_positive() {
+        assert!(MsgType::to_msg_type(23) == MsgType::PortAbsent);
+    }
+
+    #[test]
+    fn test_to_msg_type_ignore_positive() {
+        assert!(MsgType::to_msg_type(0) == MsgType::Ignore);
+    }
+
+    #[test]
+    fn test_to_byte_federation_id_does_not_match_positive() {
+        assert!(ErrType::FederationIdDoesNotMatch.to_byte() == 1);
+    }
+
+    #[test]
+    fn test_to_byte_federate_id_in_use_positive() {
+        assert!(ErrType::FederateIdInUse.to_byte() == 2);
+    }
+
+    #[test]
+    fn test_to_byte_federate_id_out_of_range_positive() {
+        assert!(ErrType::FederateIdOutOfRange.to_byte() == 3);
+    }
+
+    #[test]
+    fn test_to_byte_unexpected_message_positive() {
+        assert!(ErrType::UnexpectedMessage.to_byte() == 4);
+    }
+
+    #[test]
+    fn test_to_byte_wrong_server_positive() {
+        assert!(ErrType::WrongServer.to_byte() == 5);
     }
 }

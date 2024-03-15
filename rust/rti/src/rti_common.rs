@@ -28,6 +28,7 @@ const IS_IN_ZERO_DELAY_CYCLE: i32 = 1;
 const IS_IN_CYCLE: i32 = 2;
 
 /** Mode of execution of a federate. */
+#[derive(PartialEq)]
 enum ExecutionMode {
     FAST,
     REALTIME,
@@ -41,6 +42,7 @@ pub enum SchedulingNodeState {
 }
 
 /** Struct for minimum delays from upstream nodes. */
+#[derive(PartialEq, Clone)]
 pub struct MinimumDelay {
     id: i32,        // ID of the upstream node.
     min_delay: Tag, // Minimum delay from upstream.
@@ -69,6 +71,7 @@ impl MinimumDelay {
  * denoted with ~>) because those connections do not impose
  * any scheduling constraints.
  */
+#[derive(PartialEq)]
 pub struct SchedulingNode {
     id: u16,                         // ID of this scheduling node.
     completed: Tag, // The largest logical tag completed by the federate (or NEVER if no LTC has been received).
@@ -192,6 +195,7 @@ impl SchedulingNode {
     }
 
     pub fn set_upstream_id_at(&mut self, upstream_id: u16, idx: usize) {
+        // TODO: Handle the case when idx > upstream size.
         self.upstream.insert(idx, upstream_id as i32);
     }
 
@@ -200,6 +204,7 @@ impl SchedulingNode {
     }
 
     pub fn set_upstream_delay_at(&mut self, upstream_delay: tag::Interval, idx: usize) {
+        // TODO: Handle the case when idx > upstream_delay size.
         self.upstream_delay.insert(idx, upstream_delay);
     }
 
@@ -208,6 +213,7 @@ impl SchedulingNode {
     }
 
     pub fn set_downstream_id_at(&mut self, downstream_id: u16, idx: usize) {
+        // TODO: Handle the case when idx > downstream size.
         self.downstream.insert(idx, downstream_id as i32);
     }
 
@@ -357,7 +363,6 @@ impl SchedulingNode {
     fn tag_advance_grant_if_safe(
         _f_rti: Arc<RwLock<RTIRemote>>,
         fed_id: u16,
-        // number_of_enclaves: i32,
         start_time: Instant,
     ) -> TagAdvanceGrant {
         let mut result = TagAdvanceGrant::new(Tag::never_tag(), false);
@@ -1394,5 +1399,418 @@ impl TagAdvanceGrant {
 
     pub fn set_provisional(&mut self, is_provisional: bool) {
         self.is_provisional = is_provisional;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::initialize_federates;
+    use crate::initialize_rti;
+    use crate::process_args;
+
+    use rand::Rng;
+
+    const MAX_STREAM_SIZE: usize = 10000;
+    const RUST_RTI_PROGRAM_PATH: &str = "target/debug/rti";
+    const RUST_RTI_NUMBER_OF_FEDERATES_OPTION: &str = "-n";
+    const NUMBER_OF_FEDEATES: i32 = 2;
+
+    #[test]
+    // TODO: Better tp seperate each assert into a unit test, respectively.
+    fn test_minimum_delay_positive() {
+        let mut rng = rand::thread_rng();
+        let id: i32 = rng.gen_range(0..i32::MAX);
+        let time: i64 = rng.gen_range(0..i64::MAX);
+        let microstep: u32 = rng.gen_range(0..u32::MAX);
+        let min_delay = Tag::new(time, microstep);
+        let minimum_delay = MinimumDelay::new(id, min_delay.clone());
+        assert!(minimum_delay.id() == id);
+        assert!(minimum_delay.min_delay() == &min_delay);
+    }
+
+    #[test]
+    // TODO: Better tp seperate each assert into a unit test, respectively.
+    fn test_scheduling_node_positive() {
+        let mut scheduling_node = SchedulingNode::new();
+        let mut rng = rand::thread_rng();
+        let id: u16 = rng.gen_range(0..u16::MAX);
+        scheduling_node.initialize_scheduling_node(id);
+        assert!(scheduling_node.id() == id);
+        assert!(scheduling_node.completed() == Tag::never_tag());
+        assert!(scheduling_node.last_granted() == Tag::never_tag());
+        assert!(scheduling_node.last_provisionally_granted() == Tag::never_tag());
+        assert!(scheduling_node.next_event() == Tag::never_tag());
+        assert!(scheduling_node.state() == SchedulingNodeState::NotConnected);
+        assert!(scheduling_node.upstream() == &(Vec::<i32>::new()));
+        assert!(scheduling_node.upstream_delay() == &(Vec::<Interval>::new()));
+        assert!(scheduling_node.num_upstream() == 0);
+        assert!(scheduling_node.downstream() == &(Vec::<i32>::new()));
+        assert!(scheduling_node.num_downstream() == 0);
+        assert!(scheduling_node.min_delays() == &(Vec::<MinimumDelay>::new()));
+        assert!(scheduling_node.num_min_delays() == 0);
+        assert!(scheduling_node.flags() == 0);
+    }
+
+    #[test]
+    fn test_set_last_granted_positive() {
+        let mut scheduling_node = SchedulingNode::new();
+        scheduling_node.set_last_granted(Tag::forever_tag());
+        assert!(scheduling_node.last_granted() == Tag::forever_tag());
+    }
+
+    #[test]
+    fn test_set_last_provisionally_granted_positive() {
+        let mut scheduling_node = SchedulingNode::new();
+        scheduling_node.set_last_provisionally_granted(Tag::forever_tag());
+        assert!(scheduling_node.last_provisionally_granted() == Tag::forever_tag());
+    }
+
+    #[test]
+    fn test_set_next_event_positive() {
+        let mut scheduling_node = SchedulingNode::new();
+        scheduling_node.set_next_event(Tag::forever_tag());
+        assert!(scheduling_node.next_event() == Tag::forever_tag());
+    }
+
+    #[test]
+    fn test_set_state_positive() {
+        let mut scheduling_node = SchedulingNode::new();
+        scheduling_node.set_state(SchedulingNodeState::Granted);
+        assert!(scheduling_node.state() == SchedulingNodeState::Granted);
+        scheduling_node.set_state(SchedulingNodeState::Pending);
+        assert!(scheduling_node.state() == SchedulingNodeState::Pending);
+        scheduling_node.set_state(SchedulingNodeState::NotConnected);
+        assert!(scheduling_node.state() == SchedulingNodeState::NotConnected);
+    }
+
+    #[test]
+    fn test_set_upstream_id_at_positive() {
+        let mut scheduling_node = SchedulingNode::new();
+        let mut rng = rand::thread_rng();
+        let upstream_id: u16 = rng.gen_range(1..u16::MAX);
+        let idx: usize = rng.gen_range(0..MAX_STREAM_SIZE);
+        for i in 0..MAX_STREAM_SIZE {
+            scheduling_node.set_upstream_id_at(0, i);
+        }
+        scheduling_node.set_upstream_id_at(upstream_id, idx);
+        assert!(scheduling_node.upstream()[idx] == upstream_id.into());
+    }
+
+    #[test]
+    fn test_set_completed_positive() {
+        let mut scheduling_node = SchedulingNode::new();
+        scheduling_node.set_completed(Tag::forever_tag());
+        assert!(scheduling_node.completed() == Tag::forever_tag());
+    }
+
+    #[test]
+    fn test_set_upstream_delay_at_positive() {
+        let mut scheduling_node = SchedulingNode::new();
+        let mut rng = rand::thread_rng();
+        let upstream_delay = rng.gen_range(1..i64::MAX);
+        let idx: usize = rng.gen_range(0..MAX_STREAM_SIZE);
+        for i in 0..MAX_STREAM_SIZE {
+            scheduling_node.set_upstream_delay_at(Some(0), i);
+        }
+        scheduling_node.set_upstream_delay_at(Some(upstream_delay), idx);
+        assert!(scheduling_node.upstream_delay()[idx] == Some(upstream_delay));
+    }
+
+    #[test]
+    fn test_set_num_upstream_positive() {
+        let mut scheduling_node = SchedulingNode::new();
+        let mut rng = rand::thread_rng();
+        let num_upstream: i32 = rng.gen_range(0..i32::MAX);
+        scheduling_node.set_num_upstream(num_upstream);
+        assert!(scheduling_node.num_upstream() == num_upstream);
+    }
+
+    #[test]
+    fn test_set_downstream_id_at_positive() {
+        let mut scheduling_node = SchedulingNode::new();
+        let mut rng = rand::thread_rng();
+        let downstream_id: u16 = rng.gen_range(1..u16::MAX);
+        let idx: usize = rng.gen_range(0..MAX_STREAM_SIZE);
+        for i in 0..MAX_STREAM_SIZE {
+            scheduling_node.set_downstream_id_at(0, i);
+        }
+        scheduling_node.set_downstream_id_at(downstream_id, idx);
+        assert!(scheduling_node.downstream()[idx] == downstream_id.into());
+    }
+
+    #[test]
+    fn test_set_num_downstream_positive() {
+        let mut scheduling_node = SchedulingNode::new();
+        let mut rng = rand::thread_rng();
+        let num_downstream: i32 = rng.gen_range(0..i32::MAX);
+        scheduling_node.set_num_downstream(num_downstream);
+        assert!(scheduling_node.num_downstream() == num_downstream);
+    }
+
+    #[test]
+    fn test_set_min_delays_positive() {
+        let mut scheduling_node = SchedulingNode::new();
+        let mut rng = rand::thread_rng();
+        let minimum_delay_id: i32 = rng.gen_range(0..i32::MAX);
+        let minimum_delay = MinimumDelay::new(minimum_delay_id, Tag::forever_tag());
+        let mut min_delays = Vec::new();
+        min_delays.push(minimum_delay);
+        scheduling_node.set_min_delays(min_delays.clone());
+        assert!(scheduling_node.min_delays() == &mut min_delays);
+    }
+
+    #[test]
+    fn test_set_num_min_delays_positive() {
+        let mut scheduling_node = SchedulingNode::new();
+        let mut rng = rand::thread_rng();
+        let num_min_delays: u64 = rng.gen_range(0..u64::MAX);
+        scheduling_node.set_num_min_delays(num_min_delays);
+        assert!(scheduling_node.num_min_delays() == num_min_delays);
+    }
+
+    #[test]
+    fn test_set_flags_positive() {
+        let mut scheduling_node = SchedulingNode::new();
+        let mut rng = rand::thread_rng();
+        let flags: i32 = rng.gen_range(0..i32::MAX);
+        scheduling_node.set_flags(flags);
+        assert!(scheduling_node.flags() == flags);
+    }
+
+    #[test]
+    fn test_update_scheduling_node_next_event_tag_locked_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(RUST_RTI_PROGRAM_PATH.to_string());
+        args.push(RUST_RTI_NUMBER_OF_FEDERATES_OPTION.to_string());
+        args.push(NUMBER_OF_FEDEATES.to_string());
+        let _ = process_args(&mut rti, &args);
+        initialize_federates(&mut rti);
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
+        let cloned_sent_start_time = Arc::clone(&sent_start_time);
+        SchedulingNode::update_scheduling_node_next_event_tag_locked(
+            cloned_rti,
+            0,
+            Tag::new(0, 0),
+            0,
+            cloned_sent_start_time,
+        );
+    }
+
+    #[test]
+    fn test_notify_advance_grant_if_safe_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(RUST_RTI_PROGRAM_PATH.to_string());
+        args.push(RUST_RTI_NUMBER_OF_FEDERATES_OPTION.to_string());
+        args.push(NUMBER_OF_FEDEATES.to_string());
+        let _ = process_args(&mut rti, &args);
+        initialize_federates(&mut rti);
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
+        let cloned_sent_start_time = Arc::clone(&sent_start_time);
+        SchedulingNode::notify_advance_grant_if_safe(cloned_rti, 0, 2, 0, cloned_sent_start_time);
+    }
+
+    #[test]
+    fn test_tag_advance_grant_if_safe_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(RUST_RTI_PROGRAM_PATH.to_string());
+        args.push(RUST_RTI_NUMBER_OF_FEDERATES_OPTION.to_string());
+        args.push(NUMBER_OF_FEDEATES.to_string());
+        let _ = process_args(&mut rti, &args);
+        initialize_federates(&mut rti);
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        SchedulingNode::tag_advance_grant_if_safe(cloned_rti, 0, 0);
+    }
+
+    #[test]
+    fn test_is_in_zero_delay_cycle_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(RUST_RTI_PROGRAM_PATH.to_string());
+        args.push(RUST_RTI_NUMBER_OF_FEDERATES_OPTION.to_string());
+        args.push(NUMBER_OF_FEDEATES.to_string());
+        let _ = process_args(&mut rti, &args);
+        initialize_federates(&mut rti);
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        let result = SchedulingNode::is_in_zero_delay_cycle(cloned_rti, 0);
+        assert!(result == false);
+    }
+
+    #[test]
+    fn test_notify_tag_advance_grant_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(RUST_RTI_PROGRAM_PATH.to_string());
+        args.push(RUST_RTI_NUMBER_OF_FEDERATES_OPTION.to_string());
+        args.push(NUMBER_OF_FEDEATES.to_string());
+        let _ = process_args(&mut rti, &args);
+        initialize_federates(&mut rti);
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
+        let cloned_sent_start_time = Arc::clone(&sent_start_time);
+        SchedulingNode::notify_tag_advance_grant(
+            cloned_rti,
+            0,
+            Tag::new(0, 0),
+            0,
+            cloned_sent_start_time,
+        );
+    }
+
+    #[test]
+    fn test_notify_provisional_tag_advance_grant_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(RUST_RTI_PROGRAM_PATH.to_string());
+        args.push(RUST_RTI_NUMBER_OF_FEDERATES_OPTION.to_string());
+        args.push(NUMBER_OF_FEDEATES.to_string());
+        let _ = process_args(&mut rti, &args);
+        initialize_federates(&mut rti);
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
+        let cloned_sent_start_time = Arc::clone(&sent_start_time);
+        SchedulingNode::notify_provisional_tag_advance_grant(
+            cloned_rti,
+            0,
+            NUMBER_OF_FEDEATES,
+            Tag::new(0, 0),
+            0,
+            cloned_sent_start_time,
+        );
+    }
+
+    #[test]
+    fn test_earliest_future_incoming_message_tag_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(RUST_RTI_PROGRAM_PATH.to_string());
+        args.push(RUST_RTI_NUMBER_OF_FEDERATES_OPTION.to_string());
+        args.push(NUMBER_OF_FEDEATES.to_string());
+        let _ = process_args(&mut rti, &args);
+        initialize_federates(&mut rti);
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        SchedulingNode::earliest_future_incoming_message_tag(cloned_rti, 0, 0);
+    }
+
+    #[test]
+    fn test_update_min_delays_upstream_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(RUST_RTI_PROGRAM_PATH.to_string());
+        args.push(RUST_RTI_NUMBER_OF_FEDERATES_OPTION.to_string());
+        args.push(NUMBER_OF_FEDEATES.to_string());
+        let _ = process_args(&mut rti, &args);
+        initialize_federates(&mut rti);
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        SchedulingNode::update_min_delays_upstream(cloned_rti, 0);
+    }
+
+    #[test]
+    fn test_logical_tag_complete_positive() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(RUST_RTI_PROGRAM_PATH.to_string());
+        args.push(RUST_RTI_NUMBER_OF_FEDERATES_OPTION.to_string());
+        args.push(NUMBER_OF_FEDEATES.to_string());
+        let _ = process_args(&mut rti, &args);
+        initialize_federates(&mut rti);
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
+        let cloned_sent_start_time = Arc::clone(&sent_start_time);
+        SchedulingNode::_logical_tag_complete(
+            cloned_rti,
+            0,
+            NUMBER_OF_FEDEATES,
+            0,
+            cloned_sent_start_time,
+            Tag::never_tag(),
+        );
+    }
+
+    #[test]
+    // TODO: Better tp seperate each assert into a unit test, respectively.
+    fn test_rti_common_positive() {
+        let rti_common = RTICommon::new();
+        assert!(rti_common.scheduling_nodes().len() == 0);
+        assert!(rti_common.number_of_scheduling_nodes() == 0);
+        assert!(rti_common.max_stop_tag() == Tag::never_tag());
+        assert!(rti_common.num_scheduling_nodes_handling_stop() == 0);
+        assert!(rti_common.tracing_enabled() == false);
+    }
+
+    #[test]
+    fn test_set_max_stop_tag_positive() {
+        let mut rti_common = RTICommon::new();
+        let mut rng = rand::thread_rng();
+        let time: i64 = rng.gen_range(0..i64::MAX);
+        let microstep: u32 = rng.gen_range(0..u32::MAX);
+        let max_stop_tag = Tag::new(time, microstep);
+        rti_common.set_max_stop_tag(max_stop_tag.clone());
+        assert!(rti_common.max_stop_tag() == max_stop_tag);
+    }
+
+    #[test]
+    fn test_set_number_of_scheduling_nodes_positive() {
+        let mut rti_common = RTICommon::new();
+        let mut rng = rand::thread_rng();
+        let number_of_scheduling_nodes: i32 = rng.gen_range(0..i32::MAX);
+        rti_common.set_number_of_scheduling_nodes(number_of_scheduling_nodes);
+        assert!(rti_common.number_of_scheduling_nodes() == number_of_scheduling_nodes);
+    }
+
+    #[test]
+    fn test_set_num_scheduling_nodes_handling_stop_positive() {
+        let mut rti_common = RTICommon::new();
+        let mut rng = rand::thread_rng();
+        let num_scheduling_nodes_handling_stop: i32 = rng.gen_range(0..i32::MAX);
+        rti_common.set_num_scheduling_nodes_handling_stop(num_scheduling_nodes_handling_stop);
+        assert!(
+            rti_common.num_scheduling_nodes_handling_stop() == num_scheduling_nodes_handling_stop
+        );
+    }
+
+    #[test]
+    // TODO: Better tp seperate each assert into a unit test, respectively.
+    fn test_tag_advance_grant_positive() {
+        let mut rng = rand::thread_rng();
+        let time: i64 = rng.gen_range(0..i64::MAX);
+        let microstep: u32 = rng.gen_range(0..u32::MAX);
+        let tag = Tag::new(time, microstep);
+        let tag_advance_grant = TagAdvanceGrant::new(tag.clone(), false);
+        assert!(tag_advance_grant.tag() == tag);
+        assert!(tag_advance_grant.is_provisional() == false);
+    }
+
+    #[test]
+    fn test_set_tag_positive() {
+        let mut tag_advance_grant = TagAdvanceGrant::new(Tag::never_tag(), false);
+        let mut rng = rand::thread_rng();
+        let time: i64 = rng.gen_range(0..i64::MAX);
+        let microstep: u32 = rng.gen_range(0..u32::MAX);
+        let tag = Tag::new(time, microstep);
+        tag_advance_grant.set_tag(tag.clone());
+        assert!(tag_advance_grant.tag() == tag);
+    }
+
+    #[test]
+    fn test_set_provisional_positive() {
+        let mut tag_advance_grant = TagAdvanceGrant::new(Tag::never_tag(), false);
+        tag_advance_grant.set_provisional(true);
+        assert!(tag_advance_grant.is_provisional() == true);
     }
 }

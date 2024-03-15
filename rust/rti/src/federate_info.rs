@@ -126,3 +126,141 @@ impl FederateInfo {
         self.server_ip_addr = server_ip_addr;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    // use std::net::TcpStream;
+
+    #[test]
+    fn test_new_positive() {
+        let _federate_info = FederateInfo::new();
+        // TODO: Check federate_info
+        assert!(true);
+    }
+
+    #[test]
+    fn test_enclave_positive() {
+        let federate_info = FederateInfo::new();
+        let enclave = federate_info.enclave();
+        assert!(enclave == &SchedulingNode::new());
+    }
+
+    #[test]
+    fn test_enclave_mut_positive() {
+        let mut federate_info = FederateInfo::new();
+        let enclave_mut = federate_info.enclave_mut();
+        assert!(enclave_mut == &mut SchedulingNode::new());
+    }
+
+    #[test]
+    fn test_requested_stop_positive() {
+        let federate_info = FederateInfo::new();
+        let is_requested_stop = federate_info.requested_stop();
+        assert!(is_requested_stop == false);
+    }
+
+    #[test]
+    fn test_initial_stream_positive() {
+        let federate_info = FederateInfo::new();
+        let _initial_stream = federate_info.stream();
+        // TODO: Check initial_stream
+        assert!(true);
+    }
+
+    #[test]
+    fn test_clock_synchronization_enabled_positive() {
+        let federate_info = FederateInfo::new();
+        let is_clock_synchronization_enabled = federate_info.clock_synchronization_enabled();
+        assert!(is_clock_synchronization_enabled == true);
+    }
+
+    #[test]
+    fn test_in_transit_message_queue_positive() {
+        let federate_info = FederateInfo::new();
+        let in_transit_message_tags = federate_info.in_transit_message_queue();
+        assert!(in_transit_message_tags == &InTransitMessageQueue::new())
+    }
+
+    #[test]
+    fn test_in_transit_message_queue_mut_positive() {
+        let mut federate_info = FederateInfo::new();
+        let in_transit_message_tags = federate_info.in_transit_message_queue_mut();
+        assert!(in_transit_message_tags == &mut InTransitMessageQueue::new())
+    }
+
+    #[test]
+    fn test_set_requested_stop_as_true_positive() {
+        let mut federate_info = FederateInfo::new();
+        federate_info.set_requested_stop(true);
+        assert!(federate_info.requested_stop() == true);
+    }
+
+    #[test]
+    fn test_set_requested_stop_as_false_positive() {
+        let mut federate_info = FederateInfo::new();
+        federate_info.set_requested_stop(false);
+        assert!(federate_info.requested_stop() == false);
+    }
+
+    #[test]
+    fn test_set_stream_with_valid_stream_positive() {
+        // TODO: Enable below
+        // let mut federate_info = FederateInfo::new();
+        // match TcpStream::connect("127.0.0.1:8080") {
+        //     Ok(valid_stream) => {
+        //         federate_info.set_stream(valid_stream);
+        //         assert!(federate_info.stream() == valid_stream);
+        //     }
+        //     Err(_e) => {
+        //         assert!(false);
+        //     }
+        // };
+    }
+
+    #[test]
+    fn test_set_clock_synchronization_enabled_with_true_positive() {
+        let mut federate_info = FederateInfo::new();
+        federate_info.set_clock_synchronization_enabled(true);
+        assert!(federate_info.clock_synchronization_enabled() == true);
+    }
+
+    #[test]
+    fn test_set_clock_synchronization_enabled_with_false_positive() {
+        let mut federate_info = FederateInfo::new();
+        federate_info.set_clock_synchronization_enabled(false);
+        assert!(federate_info.clock_synchronization_enabled() == false);
+    }
+
+    #[test]
+    fn test_set_server_hostname_with_valid_name_positive() {
+        let mut federate_info = FederateInfo::new();
+        let server_name = String::from("test_rust_rti_server");
+        federate_info.set_server_hostname(server_name.clone());
+        assert!(federate_info.server_hostname() == server_name);
+    }
+
+    #[test]
+    fn test_set_server_hostname_with_invalid_name_negative() {
+        let mut federate_info = FederateInfo::new();
+        let server_name = String::from("");
+        federate_info.set_server_hostname(server_name.clone());
+        assert!(federate_info.server_hostname().len() == 0);
+    }
+
+    #[test]
+    fn test_set_server_port_with_valid_port_positive() {
+        let mut federate_info = FederateInfo::new();
+        let server_port = 8080;
+        federate_info.set_server_port(server_port);
+        assert!(federate_info.server_port() == server_port);
+    }
+
+    #[test]
+    fn test_set_server_port_with_invalid_port_negative() {
+        let mut federate_info = FederateInfo::new();
+        let server_port = -1;
+        federate_info.set_server_port(server_port);
+        assert!(federate_info.server_port() < 0);
+    }
+}
