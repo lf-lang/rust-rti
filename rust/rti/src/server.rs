@@ -247,7 +247,6 @@ impl Server {
                                     );
                                     match MsgType::to_msg_type(buffer[0]) {
                                         MsgType::Timestamp => Self::handle_timestamp(
-                                            // &buffer,
                                             fed_id.try_into().unwrap(),
                                             &mut stream,
                                             cloned_rti.clone(),
@@ -1032,6 +1031,7 @@ impl Server {
         let bytes_read = NetUtil::read_from_socket(stream, &mut buffer, fed_id);
         if bytes_read < mem::size_of::<i64>() {
             println!("ERROR reading timestamp from federate_info {}.", fed_id);
+            std::process::exit(1);
         }
 
         // FIXME: Check whether swap_bytes_if_big_endian_int64() is implemented correctly
@@ -2381,6 +2381,442 @@ impl Server {
             _f_rti.clone(),
             MsgType::ClockSyncT4.to_byte(),
             stream,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::initialize_federates;
+    use crate::initialize_rti;
+    use crate::process_args;
+
+    use socket_server_mocker::server_mocker::ServerMocker;
+    use socket_server_mocker::server_mocker_instruction::{
+        ServerMockerInstruction, ServerMockerInstructionsList,
+    };
+    use socket_server_mocker::tcp_server_mocker::TcpServerMocker;
+
+    use rand::{rngs::StdRng, RngCore, SeedableRng};
+
+    const FED_ID: u16 = 0;
+    const I32_SIZE: usize = mem::size_of::<i32>();
+    const I64_SIZE: usize = mem::size_of::<i64>();
+    const U16_SIZE: usize = mem::size_of::<u16>();
+    const U32_SIZE: usize = mem::size_of::<u32>();
+    const LOCAL_HOST: &str = "127.0.0.1";
+
+    #[test]
+    fn test_handle_timestamp_positive() {
+        let port_num = 10000;
+        let tcp_server_mocker = TcpServerMocker::new(port_num).unwrap();
+        let mut ip_address = LOCAL_HOST.to_owned();
+        ip_address.push_str(":");
+        ip_address.push_str(&port_num.to_string());
+        let mut stream = TcpStream::connect(ip_address).unwrap();
+        let timestamp = generate_random_bytes(I64_SIZE);
+        let _ = tcp_server_mocker.add_mock_instructions_list(
+            ServerMockerInstructionsList::new_with_instructions(
+                [ServerMockerInstruction::SendMessage(timestamp)].as_slice(),
+            ),
+        );
+
+        let mut rti = initialize_rti();
+        let _ = process_args(&mut rti, &get_rti_arguments());
+        initialize_federates(&mut rti);
+        rti.base_mut().set_number_of_scheduling_nodes(0); // To pass the logic to wait all federates.
+        let start_time = Arc::new(Mutex::new(StartTime::new()));
+        let received_start_times = Arc::new((Mutex::new(false), Condvar::new()));
+        let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        let cloned_start_time = Arc::clone(&start_time);
+        let cloned_received_start_times = Arc::clone(&received_start_times);
+        let cloned_sent_start_time = Arc::clone(&sent_start_time);
+        {
+            let mut locked_rti = cloned_rti.write().unwrap();
+            let fed: &mut FederateInfo = &mut locked_rti.base_mut().scheduling_nodes_mut()[0];
+            fed.set_stream(
+                stream
+                    .try_clone()
+                    .expect("Fail to clone a mocked TCP stream."),
+            );
+        }
+
+        Server::handle_timestamp(
+            FED_ID,
+            &mut stream,
+            cloned_rti.clone(),
+            cloned_start_time.clone(),
+            cloned_received_start_times.clone(),
+            cloned_sent_start_time.clone(),
+        );
+    }
+
+    fn generate_random_bytes(buffer_size: usize) -> Vec<u8> {
+        let seed = [0u8; 32];
+        let mut rng: StdRng = SeedableRng::from_seed(seed);
+        let mut bytes = vec![0 as u8; buffer_size];
+        rng.fill_bytes(&mut bytes);
+        bytes.to_vec()
+    }
+
+    fn get_rti_arguments() -> Vec<String> {
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(String::from("2"));
+        args
+    }
+
+    #[test]
+    fn test_handle_federate_resign_positive() {
+        let port_num = 10010;
+        let _tcp_server_mocker = TcpServerMocker::new(port_num).unwrap();
+        let mut ip_address = LOCAL_HOST.to_owned();
+        ip_address.push_str(":");
+        ip_address.push_str(&port_num.to_string());
+        let stream = TcpStream::connect(ip_address).unwrap();
+
+        let mut rti = initialize_rti();
+        let _ = process_args(&mut rti, &get_rti_arguments());
+        initialize_federates(&mut rti);
+        let start_time = Arc::new(Mutex::new(StartTime::new()));
+        let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        let cloned_start_time = Arc::clone(&start_time);
+        let cloned_sent_start_time = Arc::clone(&sent_start_time);
+        {
+            let mut locked_rti = cloned_rti.write().unwrap();
+            let fed: &mut FederateInfo = &mut locked_rti.base_mut().scheduling_nodes_mut()[0];
+            fed.set_stream(
+                stream
+                    .try_clone()
+                    .expect("Fail to clone a mocked TCP stream."),
+            );
+        }
+
+        Server::handle_federate_resign(
+            FED_ID,
+            cloned_rti.clone(),
+            cloned_start_time.clone(),
+            cloned_sent_start_time.clone(),
+        );
+    }
+
+    #[test]
+    fn test_handle_timed_message_positive() {
+        let port_num = 10020;
+        let tcp_server_mocker = TcpServerMocker::new(port_num).unwrap();
+        let mut ip_address = LOCAL_HOST.to_owned();
+        ip_address.push_str(":");
+        ip_address.push_str(&port_num.to_string());
+        let mut stream = TcpStream::connect(ip_address).unwrap();
+        let mut timed_header =
+            generate_random_bytes(U16_SIZE + U16_SIZE + I32_SIZE + I64_SIZE + U32_SIZE);
+        // Set federate_id as 0 to avoid out of bound exception.
+        timed_header[2] = 0;
+        timed_header[3] = 0;
+        let _ = tcp_server_mocker.add_mock_instructions_list(
+            ServerMockerInstructionsList::new_with_instructions(
+                [ServerMockerInstruction::SendMessage(timed_header)].as_slice(),
+            ),
+        );
+
+        let mut rti = initialize_rti();
+        let _ = process_args(&mut rti, &get_rti_arguments());
+        initialize_federates(&mut rti);
+        let start_time = Arc::new(Mutex::new(StartTime::new()));
+        let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        let cloned_start_time = Arc::clone(&start_time);
+        let cloned_sent_start_time = Arc::clone(&sent_start_time);
+        {
+            let mut locked_rti = cloned_rti.write().unwrap();
+            let fed: &mut FederateInfo = &mut locked_rti.base_mut().scheduling_nodes_mut()[0];
+            fed.set_stream(
+                stream
+                    .try_clone()
+                    .expect("Fail to clone a mocked TCP stream."),
+            );
+        }
+
+        Server::handle_timed_message(
+            MsgType::TaggedMessage.to_byte(),
+            FED_ID,
+            &mut stream,
+            cloned_rti.clone(),
+            cloned_start_time.clone(),
+            cloned_sent_start_time.clone(),
+        );
+    }
+
+    #[test]
+    fn test_handle_next_event_tag_positive() {
+        let port_num = 10030;
+        let tcp_server_mocker = TcpServerMocker::new(port_num).unwrap();
+        let mut ip_address = LOCAL_HOST.to_owned();
+        ip_address.push_str(":");
+        ip_address.push_str(&port_num.to_string());
+        let mut stream = TcpStream::connect(ip_address).unwrap();
+        let msg = generate_random_bytes(I64_SIZE + U32_SIZE);
+        let _ = tcp_server_mocker.add_mock_instructions_list(
+            ServerMockerInstructionsList::new_with_instructions(
+                [ServerMockerInstruction::SendMessage(msg)].as_slice(),
+            ),
+        );
+
+        let mut rti = initialize_rti();
+        let _ = process_args(&mut rti, &get_rti_arguments());
+        initialize_federates(&mut rti);
+        let mut zero_start_time = StartTime::new();
+        zero_start_time.set_start_time(0);
+        let start_time = Arc::new(Mutex::new(zero_start_time));
+        let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        let cloned_start_time = Arc::clone(&start_time);
+        let cloned_sent_start_time = Arc::clone(&sent_start_time);
+        {
+            let mut locked_rti = cloned_rti.write().unwrap();
+            let fed: &mut FederateInfo = &mut locked_rti.base_mut().scheduling_nodes_mut()[0];
+            fed.set_stream(
+                stream
+                    .try_clone()
+                    .expect("Fail to clone a mocked TCP stream."),
+            );
+        }
+
+        Server::handle_next_event_tag(
+            FED_ID,
+            &mut stream,
+            cloned_rti.clone(),
+            cloned_start_time.clone(),
+            cloned_sent_start_time.clone(),
+        );
+    }
+
+    #[test]
+    fn test_handle_latest_tag_complete_positive() {
+        let port_num = 10040;
+        let tcp_server_mocker = TcpServerMocker::new(port_num).unwrap();
+        let mut ip_address = LOCAL_HOST.to_owned();
+        ip_address.push_str(":");
+        ip_address.push_str(&port_num.to_string());
+        let mut stream = TcpStream::connect(ip_address).unwrap();
+        let msg = generate_random_bytes(I64_SIZE + U32_SIZE);
+        let _ = tcp_server_mocker.add_mock_instructions_list(
+            ServerMockerInstructionsList::new_with_instructions(
+                [ServerMockerInstruction::SendMessage(msg)].as_slice(),
+            ),
+        );
+
+        let mut rti = initialize_rti();
+        let _ = process_args(&mut rti, &get_rti_arguments());
+        initialize_federates(&mut rti);
+        let mut zero_start_time = StartTime::new();
+        zero_start_time.set_start_time(0);
+        let start_time = Arc::new(Mutex::new(zero_start_time));
+        let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        let cloned_start_time = Arc::clone(&start_time);
+        let cloned_sent_start_time = Arc::clone(&sent_start_time);
+        {
+            let mut locked_rti = cloned_rti.write().unwrap();
+            let fed: &mut FederateInfo = &mut locked_rti.base_mut().scheduling_nodes_mut()[0];
+            fed.set_stream(
+                stream
+                    .try_clone()
+                    .expect("Fail to clone a mocked TCP stream."),
+            );
+        }
+
+        Server::handle_latest_tag_complete(
+            FED_ID,
+            &mut stream,
+            cloned_rti.clone(),
+            cloned_start_time.clone(),
+            cloned_sent_start_time.clone(),
+        );
+    }
+
+    #[test]
+    fn test_handle_stop_request_message_positive() {
+        let port_num = 10050;
+        let tcp_server_mocker = TcpServerMocker::new(port_num).unwrap();
+        let mut ip_address = LOCAL_HOST.to_owned();
+        ip_address.push_str(":");
+        ip_address.push_str(&port_num.to_string());
+        let mut stream = TcpStream::connect(ip_address).unwrap();
+        let msg = generate_random_bytes(I64_SIZE + U32_SIZE);
+        let _ = tcp_server_mocker.add_mock_instructions_list(
+            ServerMockerInstructionsList::new_with_instructions(
+                [ServerMockerInstruction::SendMessage(msg)].as_slice(),
+            ),
+        );
+
+        let mut rti = initialize_rti();
+        let _ = process_args(&mut rti, &get_rti_arguments());
+        initialize_federates(&mut rti);
+        let mut zero_start_time = StartTime::new();
+        zero_start_time.set_start_time(0);
+        let start_time = Arc::new(Mutex::new(zero_start_time));
+        let stop_granted = Arc::new(Mutex::new(StopGranted::new()));
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        let cloned_start_time = Arc::clone(&start_time);
+        let cloned_stop_granted = Arc::clone(&stop_granted);
+        {
+            let mut locked_rti = cloned_rti.write().unwrap();
+            let fed: &mut FederateInfo = &mut locked_rti.base_mut().scheduling_nodes_mut()[0];
+            fed.set_stream(
+                stream
+                    .try_clone()
+                    .expect("Fail to clone a mocked TCP stream."),
+            );
+        }
+
+        Server::handle_stop_request_message(
+            FED_ID,
+            &mut stream,
+            cloned_rti.clone(),
+            cloned_start_time.clone(),
+            cloned_stop_granted.clone(),
+        );
+    }
+
+    #[test]
+    fn test_handle_stop_request_reply_positive() {
+        let port_num = 10060;
+        let tcp_server_mocker = TcpServerMocker::new(port_num).unwrap();
+        let mut ip_address = LOCAL_HOST.to_owned();
+        ip_address.push_str(":");
+        ip_address.push_str(&port_num.to_string());
+        let mut stream = TcpStream::connect(ip_address).unwrap();
+        let msg = generate_random_bytes(I64_SIZE + U32_SIZE);
+        let _ = tcp_server_mocker.add_mock_instructions_list(
+            ServerMockerInstructionsList::new_with_instructions(
+                [ServerMockerInstruction::SendMessage(msg)].as_slice(),
+            ),
+        );
+
+        let mut rti = initialize_rti();
+        let _ = process_args(&mut rti, &get_rti_arguments());
+        initialize_federates(&mut rti);
+        let mut zero_start_time = StartTime::new();
+        zero_start_time.set_start_time(0);
+        let start_time = Arc::new(Mutex::new(zero_start_time));
+        let stop_granted = Arc::new(Mutex::new(StopGranted::new()));
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        let cloned_start_time = Arc::clone(&start_time);
+        let cloned_stop_granted = Arc::clone(&stop_granted);
+        {
+            let mut locked_rti = cloned_rti.write().unwrap();
+            let fed: &mut FederateInfo = &mut locked_rti.base_mut().scheduling_nodes_mut()[0];
+            fed.set_stream(
+                stream
+                    .try_clone()
+                    .expect("Fail to clone a mocked TCP stream."),
+            );
+        }
+
+        Server::handle_stop_request_reply(
+            FED_ID,
+            &mut stream,
+            cloned_rti.clone(),
+            cloned_start_time.clone(),
+            cloned_stop_granted.clone(),
+        );
+    }
+
+    #[test]
+    fn test_handle_address_query_positive() {
+        let port_num = 10070;
+        let tcp_server_mocker = TcpServerMocker::new(port_num).unwrap();
+        let mut ip_address = LOCAL_HOST.to_owned();
+        ip_address.push_str(":");
+        ip_address.push_str(&port_num.to_string());
+        let mut stream = TcpStream::connect(ip_address).unwrap();
+        let mut msg = vec![0 as u8; U16_SIZE];
+        msg[0] = 0;
+        let _ = tcp_server_mocker.add_mock_instructions_list(
+            ServerMockerInstructionsList::new_with_instructions(
+                [ServerMockerInstruction::SendMessage(msg.to_vec())].as_slice(),
+            ),
+        );
+
+        let mut rti = initialize_rti();
+        let _ = process_args(&mut rti, &get_rti_arguments());
+        initialize_federates(&mut rti);
+        let mut zero_start_time = StartTime::new();
+        zero_start_time.set_start_time(0);
+        let start_time = Arc::new(Mutex::new(zero_start_time));
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        let cloned_start_time = Arc::clone(&start_time);
+        {
+            let mut locked_rti = cloned_rti.write().unwrap();
+            let fed: &mut FederateInfo = &mut locked_rti.base_mut().scheduling_nodes_mut()[0];
+            fed.set_stream(
+                stream
+                    .try_clone()
+                    .expect("Fail to clone a mocked TCP stream."),
+            );
+        }
+
+        Server::handle_address_query(
+            FED_ID,
+            &mut stream,
+            cloned_rti.clone(),
+            cloned_start_time.clone(),
+        );
+    }
+
+    #[test]
+    fn test_handle_address_ad_positive() {
+        let port_num = 10080;
+        let tcp_server_mocker = TcpServerMocker::new(port_num).unwrap();
+        let mut ip_address = LOCAL_HOST.to_owned();
+        ip_address.push_str(":");
+        ip_address.push_str(&port_num.to_string());
+        let mut stream = TcpStream::connect(ip_address).unwrap();
+        let msg = generate_random_bytes(U16_SIZE);
+        let _ = tcp_server_mocker.add_mock_instructions_list(
+            ServerMockerInstructionsList::new_with_instructions(
+                [ServerMockerInstruction::SendMessage(msg)].as_slice(),
+            ),
+        );
+
+        let mut rti = initialize_rti();
+        let _ = process_args(&mut rti, &get_rti_arguments());
+        initialize_federates(&mut rti);
+        let mut zero_start_time = StartTime::new();
+        zero_start_time.set_start_time(0);
+        let start_time = Arc::new(Mutex::new(zero_start_time));
+        let arc_rti = Arc::new(RwLock::new(rti));
+        let cloned_rti = Arc::clone(&arc_rti);
+        let cloned_start_time = Arc::clone(&start_time);
+        {
+            let mut locked_rti = cloned_rti.write().unwrap();
+            let fed: &mut FederateInfo = &mut locked_rti.base_mut().scheduling_nodes_mut()[0];
+            fed.set_stream(
+                stream
+                    .try_clone()
+                    .expect("Fail to clone a mocked TCP stream."),
+            );
+        }
+
+        Server::handle_address_ad(
+            FED_ID,
+            &mut stream,
+            cloned_rti.clone(),
+            cloned_start_time.clone(),
         );
     }
 }
