@@ -195,7 +195,7 @@ impl ErrType {
     }
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum SocketType {
     TCP,
     UDP,
