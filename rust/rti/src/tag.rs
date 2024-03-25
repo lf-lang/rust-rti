@@ -326,10 +326,8 @@ mod tests {
         let mut r1 = Tag::new(0, 0);
         let mut r2 = Tag::new(0, 0);
         let mut r3 = Tag::new(0, 0);
-        let mut r4 = Tag::new(0, 0);
 
         let fv_tag = Tag::forever_tag();
-        let nv_tag = Tag::never_tag();
         let zr_tag = Tag::zero_tag();
 
         assert_eq!(t1, Tag::lf_delay_tag(&t1, int_1));
@@ -380,20 +378,18 @@ mod tests {
 
     #[test]
     fn test_time() {
-        let mut time1: i64 = 67;
         let tag1 = Tag::new(18, 3);
 
-        time1 = tag1.time();
+        let time1 = tag1.time();
 
         assert_eq!(time1, tag1.time());
     }
 
     #[test]
     fn test_microstep() {
-        let mut step1: u32 = 5;
         let tag1 = Tag::new(18, 3);
 
-        step1 = tag1.microstep();
+        let step1 = tag1.microstep();
 
         assert_eq!(step1, tag1.microstep());
     }
