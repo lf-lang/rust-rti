@@ -31,7 +31,7 @@ pub struct FederateInfo {
     // a federate when handling lf_request_stop().
     // TODO: lf_thread_t thread_id;
     stream: Option<TcpStream>, // The TCP socket descriptor for communicating with this federate.
-    // TODO: struct sockaddr_in UDP_addr;
+    udp_addr: SocketAddr,
     clock_synchronization_enabled: bool, // Indicates the status of clock synchronization
     // for this federate. Enabled by default.
     in_transit_message_tags: InTransitMessageQueue, // Record of in-transit messages to this federate that are not
@@ -54,6 +54,7 @@ impl FederateInfo {
             enclave: SchedulingNode::new(),
             requested_stop: false,
             stream: None::<TcpStream>,
+            udp_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080),
             clock_synchronization_enabled: true,
             in_transit_message_tags: InTransitMessageQueue::new(),
             server_hostname: String::from("localhost"),
@@ -76,6 +77,14 @@ impl FederateInfo {
 
     pub fn stream(&self) -> &Option<TcpStream> {
         &self.stream
+    }
+
+    pub fn stream_mut(&mut self) -> &mut Option<TcpStream> {
+        &mut self.stream
+    }
+
+    pub fn udp_addr(&self) -> SocketAddr {
+        self.udp_addr.clone()
     }
 
     pub fn clock_synchronization_enabled(&self) -> bool {
@@ -108,6 +117,10 @@ impl FederateInfo {
 
     pub fn set_stream(&mut self, stream: TcpStream) {
         self.stream = Some(stream);
+    }
+
+    pub fn set_udp_addr(&mut self, udp_addr: SocketAddr) {
+        self.udp_addr = udp_addr;
     }
 
     pub fn set_clock_synchronization_enabled(&mut self, clock_synchronization_enabled: bool) {

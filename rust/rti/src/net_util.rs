@@ -31,7 +31,7 @@ impl NetUtil {
         } {}
     }
 
-    pub fn read_from_stream(stream: &mut TcpStream, buffer: &mut Vec<u8>, fed_id: u16) -> usize {
+    pub fn read_from_socket(stream: &mut TcpStream, buffer: &mut Vec<u8>, fed_id: u16) -> usize {
         let mut bytes_read = 0;
         while match stream.read(buffer) {
             Ok(msg_size) => {
@@ -209,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_from_stream_positive() {
+    fn test_read_from_socket_positive() {
         let port_num = 35642;
         let tcp_server_mocker = TcpServerMocker::new(port_num).unwrap();
         let mut ip_address = LOCAL_HOST.to_owned();
@@ -225,7 +225,7 @@ mod tests {
             ),
         );
         let mut buffer = vec![0 as u8; buffer_size];
-        let read_size = NetUtil::read_from_stream(&mut stream, &mut buffer, 0);
+        let read_size = NetUtil::read_from_socket(&mut stream, &mut buffer, 0);
         assert!(buffer == msg);
         assert!(buffer_size == read_size);
     }

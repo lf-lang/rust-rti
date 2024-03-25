@@ -16,6 +16,8 @@ use crate::constants::*;
 use crate::ClockSyncStat;
 use crate::RTICommon;
 
+use std::net::UdpSocket;
+
 /**
  * Structure that an RTI instance uses to keep track of its own and its
  * corresponding federates' state.
@@ -61,7 +63,7 @@ pub struct RTIRemote {
     final_port_udp: u16,
 
     /** The UDP socket descriptor for the socket server. */
-    socket_descriptor_udp: i32,
+    socket_descriptor_udp: Option<UdpSocket>,
 
     /************* Clock synchronization information *************/
     /* Thread performing PTP clock sync sessions periodically. */
@@ -80,7 +82,7 @@ pub struct RTIRemote {
     /**
      * Number of messages exchanged for each clock sync attempt.
      */
-    clock_sync_exchanges_per_interval: i32,
+    clock_sync_exchanges_per_interval: u32,
 
     /**
      * Boolean indicating that authentication is enabled.
@@ -105,7 +107,7 @@ impl RTIRemote {
             final_port_tcp: 0,
             socket_descriptor_tcp: -1,
             final_port_udp: u16::MAX,
-            socket_descriptor_udp: -1,
+            socket_descriptor_udp: None,
             clock_sync_global_status: ClockSyncStat::ClockSyncInit,
             clock_sync_period_ns: 10 * 1000000,
             clock_sync_exchanges_per_interval: 10,
@@ -138,12 +140,28 @@ impl RTIRemote {
         self.user_specified_port
     }
 
+    pub fn final_port_tcp(&self) -> u16 {
+        self.final_port_tcp
+    }
+
+    pub fn socket_descriptor_udp(&mut self) -> &mut Option<UdpSocket> {
+        &mut self.socket_descriptor_udp
+    }
+
     pub fn final_port_udp(&self) -> u16 {
         self.final_port_udp
     }
 
     pub fn clock_sync_global_status(&self) -> ClockSyncStat {
         self.clock_sync_global_status.clone()
+    }
+
+    pub fn clock_sync_period_ns(&self) -> u64 {
+        self.clock_sync_period_ns
+    }
+
+    pub fn clock_sync_exchanges_per_interval(&self) -> u32 {
+        self.clock_sync_exchanges_per_interval
     }
 
     pub fn stop_in_progress(&self) -> bool {
@@ -165,6 +183,33 @@ impl RTIRemote {
     // set_user_specified_port
     pub fn set_port(&mut self, user_specified_port: u16) {
         self.user_specified_port = user_specified_port;
+    }
+
+    pub fn set_final_port_tcp(&mut self, final_port_tcp: u16) {
+        self.final_port_tcp = final_port_tcp;
+    }
+
+    pub fn set_socket_descriptor_udp(&mut self, socket_descriptor_udp: Option<UdpSocket>) {
+        self.socket_descriptor_udp = socket_descriptor_udp;
+    }
+
+    pub fn set_final_port_udp(&mut self, final_port_udp: u16) {
+        self.final_port_udp = final_port_udp;
+    }
+
+    pub fn set_clock_sync_global_status(&mut self, clock_sync_global_status: ClockSyncStat) {
+        self.clock_sync_global_status = clock_sync_global_status;
+    }
+
+    pub fn set_clock_sync_period_ns(&mut self, clock_sync_period_ns: u64) {
+        self.clock_sync_period_ns = clock_sync_period_ns;
+    }
+
+    pub fn set_clock_sync_exchanges_per_interval(
+        &mut self,
+        clock_sync_exchanges_per_interval: u32,
+    ) {
+        self.clock_sync_exchanges_per_interval = clock_sync_exchanges_per_interval;
     }
 
     pub fn set_stop_in_progress(&mut self, stop_in_progress: bool) {
