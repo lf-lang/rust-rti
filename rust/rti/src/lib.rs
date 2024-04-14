@@ -71,7 +71,7 @@ pub fn process_args(rti: &mut RTIRemote, argv: &[String]) -> Result<(), &'static
             let num_federates: i64;
             match argv[idx].parse::<i64>() {
                 Ok(parsed_value) => {
-                    if parsed_value == 0 || parsed_value == i64::MAX || parsed_value == i64::MIN {
+                    if parsed_value <= 0 || parsed_value == i64::MAX || parsed_value == i64::MIN {
                         println!("--number_of_federates needs a valid positive integer argument.");
                         usage(argc, argv);
                         return Err("Fail to handle number_of_federates option");
@@ -134,11 +134,6 @@ pub fn process_args(rti: &mut RTIRemote, argv: &[String]) -> Result<(), &'static
             return Err("Invalid argument");
         }
         idx += 1;
-    }
-    if rti.base().number_of_scheduling_nodes() == 0 {
-        println!("--number_of_federates needs a valid positive integer argument.");
-        usage(argc, argv);
-        return Err("Invalid number of enclaves");
     }
     Ok(())
 }
@@ -333,6 +328,16 @@ mod tests {
         let mut args: Vec<String> = Vec::new();
         args.push(String::from("target/debug/rti"));
         args.push(String::from("-n"));
+        assert!(process_args(&mut rti, &args) == Err("Fail to handle number_of_federates option"));
+    }
+
+    #[test]
+    fn test_process_args_option_n_negative_value_negative() {
+        let mut rti = initialize_rti();
+        let mut args: Vec<String> = Vec::new();
+        args.push(String::from("target/debug/rti"));
+        args.push(String::from("-n"));
+        args.push(String::from("-1"));
         assert!(process_args(&mut rti, &args) == Err("Fail to handle number_of_federates option"));
     }
 

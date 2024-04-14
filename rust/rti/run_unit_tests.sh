@@ -11,6 +11,7 @@
 # 1. grcov <== cargo install grcov
 # 2. llvm-tools-preview <== rustup component add llvm-tools-preview
 
+rm -rf ./target/coverage
 rm -rf cargo-test-*
 
 CARGO_INCREMENTAL=0 RUSTFLAGS='-Cinstrument-coverage' LLVM_PROFILE_FILE='cargo-test-%p-%m.profraw' cargo test
