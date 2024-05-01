@@ -15,7 +15,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Build
-      run: cd rust/rti; cargo build --verbose
+      run: cd core/federated; cargo build --verbose
 
   unit-tests:
     runs-on: ubuntu-latest
@@ -23,9 +23,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Unit tests
-        run: cd rust/rti; cargo test
+        run: cd core/federated; cargo test
 
-  lf-rust-rti:
+  integration-test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -44,8 +44,8 @@ jobs:
         uses: chanijjani/lingua-franca/.github/actions/prepare-build-env@integration_tests_with_rust_rti 
       - name: Perform federated tests for C target with Rust RTI
         run:
-          git clone https://github.com/hokeun/lf-rust-rti.git;
-          cd lf-rust-rti;
+          git clone https://github.com/lf-lang/rust-rti.git;
+          cd rust-rti;
           git checkout ${{ github.head_ref }};
           cd ../;
           ./gradlew targetTest -Ptarget=RustRti
