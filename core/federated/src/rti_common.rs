@@ -1,7 +1,5 @@
-use crate::net_common::MsgType;
-use crate::net_util::NetUtil;
 /**
- * @file enclave.rs
+ * @file
  * @author Edward A. Lee (eal@berkeley.edu)
  * @author Soroush Bateni (soroush@utdallas.edu)
  * @author Erling Jellum (erling.r.jellum@ntnu.no)
@@ -16,12 +14,9 @@ use crate::net_util::NetUtil;
 use crate::rti_remote::RTIRemote;
 use crate::tag;
 use crate::tag::{Instant, Interval, Tag, FOREVER};
-use crate::trace::{Trace, TraceDirection, TraceEvent};
+use crate::trace::Trace;
 use crate::FederateInfo;
-use crate::SchedulingNodeState::*;
 
-use std::io::Write;
-use std::mem;
 use std::sync::{Arc, Condvar, Mutex, RwLock};
 
 const IS_IN_ZERO_DELAY_CYCLE: i32 = 1;
@@ -110,12 +105,6 @@ impl SchedulingNode {
             num_min_delays: 0,
             flags: 0,
         }
-    }
-
-    pub fn initialize_scheduling_node(&mut self, id: u16) {
-        self.id = id;
-        // Initialize the next event condition variable.
-        // TODO: lf_cond_init(&e->next_event_condition, &rti_mutex);
     }
 
     pub fn id(&self) -> u16 {
@@ -233,6 +222,77 @@ impl SchedulingNode {
         self.flags = flags;
     }
 
+    pub fn initialize_scheduling_node(&mut self, id: u16) {
+        self.id = id;
+        // Initialize the next event condition variable.
+        // TODO: lf_cond_init(&e->next_event_condition, &rti_mutex);
+    }
+
+    pub fn _logical_tag_complete(
+        _f_rti: Arc<RwLock<RTIRemote>>,
+        fed_id: u16,
+        number_of_enclaves: i32,
+        start_time: Instant,
+        sent_start_time: Arc<(Mutex<bool>, Condvar)>,
+        completed: Tag,
+    ) {
+        // FIXME: Consolidate this message with NET to get NMR (Next Message Request).
+        // Careful with handling startup and shutdown.
+        {
+            let mut locked_rti = _f_rti.write().unwrap();
+            let idx: usize = fed_id.into();
+            let fed: &mut FederateInfo = &mut locked_rti.base_mut().scheduling_nodes_mut()[idx];
+            let enclave = fed.enclave_mut();
+            enclave.set_completed(completed);
+
+            println!(
+                "RTI received from federate/enclave {} the Logical Tag Complete (LTC) ({},{}).",
+                enclave.id(),
+                enclave.completed().time() - start_time,
+                enclave.completed().microstep()
+            );
+        }
+
+        // Check downstream enclaves to see whether they should now be granted a TAG.
+        let num_downstream;
+        {
+            let locked_rti = _f_rti.read().unwrap();
+            let idx: usize = fed_id.into();
+            let fed: &FederateInfo = &locked_rti.base().scheduling_nodes()[idx];
+            let e = fed.enclave();
+            num_downstream = e.num_downstream();
+        }
+        for i in 0..num_downstream {
+            let e_id;
+            {
+                let locked_rti = _f_rti.read().unwrap();
+                let idx: usize = fed_id.into();
+                let fed: &FederateInfo = &locked_rti.base().scheduling_nodes()[idx];
+                let downstreams = fed.enclave().downstream();
+                // FIXME: Replace "as u16" properly.
+                e_id = downstreams[i as usize] as u16;
+            }
+            // Notify downstream enclave if appropriate.
+            Self::notify_advance_grant_if_safe(
+                _f_rti.clone(),
+                e_id,
+                number_of_enclaves,
+                start_time,
+                sent_start_time.clone(),
+            );
+            let mut visited = vec![false as bool; number_of_enclaves as usize]; // Initializes to 0.
+                                                                                // Notify enclaves downstream of downstream if appropriate.
+            Self::notify_downstream_advance_grant_if_safe(
+                _f_rti.clone(),
+                e_id,
+                number_of_enclaves,
+                start_time,
+                &mut visited,
+                sent_start_time.clone(),
+            );
+        }
+    }
+
     /**
      * @brief Update the next event tag of an scheduling node.
      *
@@ -314,7 +374,7 @@ impl SchedulingNode {
         let grant = Self::tag_advance_grant_if_safe(_f_rti.clone(), fed_id, start_time);
         if Tag::lf_tag_compare(&grant.tag(), &Tag::never_tag()) != 0 {
             if grant.is_provisional() {
-                Self::notify_provisional_tag_advance_grant(
+                RTIRemote::notify_provisional_tag_advance_grant(
                     _f_rti,
                     fed_id,
                     number_of_enclaves,
@@ -323,7 +383,7 @@ impl SchedulingNode {
                     sent_start_time,
                 );
             } else {
-                Self::notify_tag_advance_grant(
+                RTIRemote::notify_tag_advance_grant(
                     _f_rti,
                     fed_id,
                     grant.tag(),
@@ -396,14 +456,14 @@ impl SchedulingNode {
             }
             if min_upstream_completed.time() >= start_time {
                 println!(
-                    "Minimum upstream LTC for federate/enclave {} is ({},{}) (adjusted by after delay).",
+                    "RTI: Minimum upstream LTC for federate/enclave {} is ({},{}) (adjusted by after delay).",
                     e.id(),
                     min_upstream_completed.time() - start_time,
                     min_upstream_completed.microstep()
                 );
             } else {
                 println!(
-                    "[tag_advance_grant_if_safe:396, federate/enclave {}]   WARNING!!! min_upstream_completed.time({}) < start_time({})",
+                    "[tag_advance_grant_if_safe:406, federate/enclave {}]   WARNING!!! min_upstream_completed.time({}) < start_time({})",
                     e.id(),
                     // FIXME: Check the below calculation
                     min_upstream_completed.time(), // - start_time,
@@ -440,7 +500,7 @@ impl SchedulingNode {
             );
         } else {
             println!(
-                "[tag_advance_grant_if_safe:432]   WARNING!!! t_d.time < start_time   ({},{}",
+                "[tag_advance_grant_if_safe:443]   WARNING!!! t_d.time < start_time   ({},{}",
                 // FIXME: Check the below calculation
                 t_d.time(), // - start_time,
                 start_time
@@ -483,7 +543,7 @@ impl SchedulingNode {
                     next_event.time() - start_time,
                     next_event.microstep());
             } else {
-                println!("[tag_advance_grant_if_safe:471]   WARNING!!! t_d.time({}) or next_event.time({}) < start_time({})", 
+                println!("[tag_advance_grant_if_safe:486]   WARNING!!! t_d.time({}) or next_event.time({}) < start_time({})", 
                 // FIXME: Check the below calculation
                 t_d.time(), // - start_time,
                 next_event.time(), // - start_time,
@@ -526,7 +586,7 @@ impl SchedulingNode {
      * plus the least delay. This could be NEVER_TAG if the RTI has not seen a NET from some
      * upstream node.
      */
-    fn earliest_future_incoming_message_tag(
+    pub fn earliest_future_incoming_message_tag(
         _f_rti: Arc<RwLock<RTIRemote>>,
         fed_id: u16,
         start_time: Instant,
@@ -758,8 +818,6 @@ impl SchedulingNode {
                 let scheduling_nodes = locked_rti.base().scheduling_nodes();
                 let idx: usize = fed_id.into();
                 let e = scheduling_nodes[idx].enclave();
-                // let upstreams = e.upstream();
-                // let upstream_id = upstreams[i] as usize;
                 upstream_id = e.upstream()[i as usize] as usize;
                 upstream_delay = e.upstream_delay()[i as usize];
                 next_event = e.next_event();
@@ -798,7 +856,7 @@ impl SchedulingNode {
                 );
             } else {
                 println!(
-                    "[eimt_strict:782]   WARNING!!!   RTI: Strict EIMT of fed/encl {} at fed/encl {} -> earliest_tag_from_upstream.time() < start_timehas tag = ({} < {}).",
+                    "[eimt_strict:864]   WARNING!!!   RTI: Strict EIMT of fed/encl {} at fed/encl {} -> earliest_tag_from_upstream.time() < start_timehas tag = ({} < {}).",
                     fed_id,
                     upstream_id,
                     // FIXME: Check the below calculation
@@ -811,261 +869,6 @@ impl SchedulingNode {
             }
         }
         t_d
-    }
-
-    /**
-     * Notify a tag advance grant (TAG) message to the specified scheduling node.
-     * Do not notify it if a previously sent PTAG was greater or if a
-     * previously sent TAG was greater or equal.
-     *
-     * This function will keep a record of this TAG in the node's last_granted
-     * field.
-     *
-     * This function assumes that the caller holds the RTI mutex.
-     */
-    fn notify_tag_advance_grant(
-        _f_rti: Arc<RwLock<RTIRemote>>,
-        fed_id: u16,
-        tag: Tag,
-        start_time: Instant,
-        sent_start_time: Arc<(Mutex<bool>, Condvar)>,
-    ) {
-        {
-            let locked_rti = _f_rti.read().unwrap();
-            let idx: usize = fed_id.into();
-            let fed = &locked_rti.base().scheduling_nodes()[idx];
-            let e = fed.enclave();
-            if e.state() == SchedulingNodeState::NotConnected
-                || Tag::lf_tag_compare(&tag, &e.last_granted()) <= 0
-                || Tag::lf_tag_compare(&tag, &e.last_provisionally_granted()) <= 0
-            {
-                return;
-            }
-            // Need to make sure that the destination federate's thread has already
-            // sent the starting MSG_TYPE_TIMESTAMP message.
-            while e.state() == SchedulingNodeState::Pending {
-                // Need to wait here.
-                let (lock, condvar) = &*sent_start_time;
-                let mut notified = lock.lock().unwrap();
-                while !*notified {
-                    notified = condvar.wait(notified).unwrap();
-                }
-            }
-        }
-        let message_length = 1 + mem::size_of::<i64>() + mem::size_of::<u32>();
-        let mut buffer = vec![0 as u8; message_length as usize];
-        buffer[0] = MsgType::TagAdvanceGrant.to_byte();
-        NetUtil::encode_int64(tag.time(), &mut buffer, 1);
-        // FIXME: Replace "as i32" properly.
-        NetUtil::encode_int32(
-            tag.microstep() as i32,
-            &mut buffer,
-            1 + mem::size_of::<i64>(),
-        );
-
-        Trace::log_trace(
-            _f_rti.clone(),
-            TraceEvent::SendTag,
-            fed_id,
-            &tag,
-            start_time,
-            TraceDirection::To,
-        );
-        // This function is called in notify_advance_grant_if_safe(), which is a long
-        // function. During this call, the socket might close, causing the following write_to_socket
-        // to fail. Consider a failure here a soft failure and update the federate's status.
-        let mut error_occurred = false;
-        {
-            let locked_rti = _f_rti.read().unwrap();
-            let fed: &FederateInfo = &locked_rti.base().scheduling_nodes()[fed_id as usize];
-            let e = fed.enclave();
-            let mut stream = fed.stream().as_ref().unwrap();
-            match stream.write(&buffer) {
-                Ok(bytes_written) => {
-                    if bytes_written < message_length {
-                        println!(
-                            "RTI failed to send tag advance grant to federate {}.",
-                            e.id()
-                        );
-                    }
-                }
-                Err(_err) => {
-                    error_occurred = true;
-                }
-            }
-        }
-        {
-            let mut locked_rti = _f_rti.write().unwrap();
-            let mut_fed: &mut FederateInfo =
-                &mut locked_rti.base_mut().scheduling_nodes_mut()[fed_id as usize];
-            let enclave = mut_fed.enclave_mut();
-            if error_occurred {
-                enclave.set_state(SchedulingNodeState::NotConnected);
-                // FIXME: We need better error handling, but don't stop other execution here.
-            } else {
-                enclave.set_last_granted(tag.clone());
-                println!(
-                    "RTI sent to federate {} the Tag Advance Grant (TAG) ({},{}).",
-                    enclave.id(),
-                    tag.time() - start_time,
-                    tag.microstep()
-                );
-            }
-        }
-    }
-
-    /**
-     * Notify a provisional tag advance grant (PTAG) message to the specified scheduling node.
-     * Do not notify it if a previously sent PTAG or TAG was greater or equal.
-     *
-     * This function will keep a record of this PTAG in the node's last_provisionally_granted
-     * field.
-     *
-     * This function assumes that the caller holds the RTI mutex.
-     */
-    fn notify_provisional_tag_advance_grant(
-        _f_rti: Arc<RwLock<RTIRemote>>,
-        fed_id: u16,
-        number_of_enclaves: i32,
-        tag: Tag,
-        start_time: Instant,
-        sent_start_time: Arc<(Mutex<bool>, Condvar)>,
-    ) {
-        {
-            let locked_rti = _f_rti.read().unwrap();
-            let idx: usize = fed_id.into();
-            let fed: &FederateInfo = &locked_rti.base().scheduling_nodes()[idx];
-            let e = fed.enclave();
-            if e.state() == SchedulingNodeState::NotConnected
-                || Tag::lf_tag_compare(&tag, &e.last_granted()) <= 0
-                || Tag::lf_tag_compare(&tag, &e.last_provisionally_granted()) <= 0
-            {
-                return;
-            }
-            // Need to make sure that the destination federate's thread has already
-            // sent the starting MSG_TYPE_TIMESTAMP message.
-            while e.state() == SchedulingNodeState::Pending {
-                // Need to wait here.
-                let (lock, condvar) = &*sent_start_time;
-                let mut notified = lock.lock().unwrap();
-                while !*notified {
-                    notified = condvar.wait(notified).unwrap();
-                }
-            }
-        }
-        let message_length = 1 + mem::size_of::<i64>() + mem::size_of::<u32>();
-        let mut buffer = vec![0 as u8; message_length as usize];
-        buffer[0] = MsgType::PropositionalTagAdvanceGrant.to_byte();
-        NetUtil::encode_int64(tag.time(), &mut buffer, 1);
-        // FIXME: Handle "as i32" properly.
-        NetUtil::encode_int32(
-            tag.microstep() as i32,
-            &mut buffer,
-            1 + mem::size_of::<i64>(),
-        );
-
-        Trace::log_trace(
-            _f_rti.clone(),
-            TraceEvent::SendPTag,
-            fed_id,
-            &tag,
-            start_time,
-            TraceDirection::To,
-        );
-        // This function is called in notify_advance_grant_if_safe(), which is a long
-        // function. During this call, the socket might close, causing the following write_to_socket
-        // to fail. Consider a failure here a soft failure and update the federate's status.
-        let mut error_occurred = false;
-        {
-            let locked_rti = _f_rti.read().unwrap();
-            let enclaves = locked_rti.base().scheduling_nodes();
-            let fed: &FederateInfo = &enclaves[fed_id as usize];
-            let e = fed.enclave();
-            let mut stream = fed.stream().as_ref().unwrap();
-            match stream.write(&buffer) {
-                Ok(bytes_written) => {
-                    if bytes_written < message_length {
-                        println!(
-                            "RTI failed to send tag advance grant to federate {}.",
-                            e.id()
-                        );
-                        return;
-                    }
-                }
-                Err(_err) => {
-                    error_occurred = true;
-                }
-            }
-        }
-        {
-            let mut locked_rti = _f_rti.write().unwrap();
-            let mut_fed: &mut FederateInfo =
-                &mut locked_rti.base_mut().scheduling_nodes_mut()[fed_id as usize];
-            let enclave = mut_fed.enclave_mut();
-            if error_occurred {
-                enclave.set_state(SchedulingNodeState::NotConnected);
-                // FIXME: We need better error handling, but don't stop other execution here.
-            }
-
-            enclave.set_last_provisionally_granted(tag.clone());
-            println!(
-                "RTI sent to federate {} the Provisional Tag Advance Grant (PTAG) ({},{}).",
-                enclave.id(),
-                tag.time() - start_time,
-                tag.microstep()
-            );
-        }
-
-        // Send PTAG to all upstream federates, if they have not had
-        // a later or equal PTAG or TAG sent previously and if their transitive
-        // NET is greater than or equal to the tag.
-        // NOTE: This could later be replaced with a TNET mechanism once
-        // we have an available encoding of causality interfaces.
-        // That might be more efficient.
-        // NOTE: This is not needed for enclaves because zero-delay loops are prohibited.
-        // It's only needed for federates, which is why this is implemented here.
-        let num_upstream;
-        {
-            let locked_rti = _f_rti.read().unwrap();
-            let enclaves = locked_rti.base().scheduling_nodes();
-            let idx: usize = fed_id.into();
-            let fed: &FederateInfo = &enclaves[idx];
-            let e = fed.enclave();
-            num_upstream = e.num_upstream();
-        }
-        for j in 0..num_upstream {
-            let e_id;
-            {
-                let locked_rti = _f_rti.read().unwrap();
-                let enclaves = locked_rti.base().scheduling_nodes();
-                let idx: usize = fed_id.into();
-                let fed: &FederateInfo = &enclaves[idx];
-                e_id = fed.enclave().upstream()[j as usize];
-                let upstream: &FederateInfo = &enclaves[e_id as usize];
-
-                // Ignore this federate if it has resigned.
-                if upstream.enclave().state() == NotConnected {
-                    continue;
-                }
-            }
-            // FIXME: Replace "as u16" properly.
-            let earlist =
-                Self::earliest_future_incoming_message_tag(_f_rti.clone(), e_id as u16, start_time);
-
-            // If these tags are equal, then a TAG or PTAG should have already been granted,
-            // in which case, another will not be sent. But it may not have been already granted.
-            if Tag::lf_tag_compare(&earlist, &tag) >= 0 {
-                Self::notify_provisional_tag_advance_grant(
-                    _f_rti.clone(),
-                    // FIXME: Replace "as u16" properly.
-                    e_id as u16,
-                    number_of_enclaves,
-                    tag.clone(),
-                    start_time,
-                    sent_start_time.clone(),
-                );
-            }
-        }
     }
 
     // Local function used recursively to find minimum delays upstream.
@@ -1118,8 +921,14 @@ impl SchedulingNode {
                 upstream_id = e.upstream[i as usize];
                 upstream_delay = e.upstream_delay[i as usize];
             }
-            // Add connection delay to path delay so far.
-            let path_delay = Tag::lf_delay_tag(&delay_from_intermediate_so_far, upstream_delay);
+            // Add connection delay to path delay so far. Because tag addition is not commutative,
+            // the calculation order should be carefully handled. Specifically, we should calculate
+            // intermediate->upstream_delay[i] + delay_from_intermediate_so_far,
+            // NOT delay_from_intermediate_so_far + intermediate->upstream_delay[i].
+            // Before calculating path delay, convert intermediate->upstream_delay[i] to a tag
+            // cause there is no function that adds a tag to an interval.
+            let connection_delay = Tag::lf_delay_tag(&Tag::zero_tag(), upstream_delay);
+            let path_delay = Tag::lf_tag_add(&connection_delay, &delay_from_intermediate_so_far);
             // If the path delay is less than the so-far recorded path delay from upstream, update upstream.
             if Tag::lf_tag_compare(&path_delay, &path_delays[upstream_id as usize]) < 0 {
                 if path_delays[upstream_id as usize].time() == FOREVER {
@@ -1215,71 +1024,6 @@ impl SchedulingNode {
                 number_of_enclaves,
                 start_time,
                 visited,
-                sent_start_time.clone(),
-            );
-        }
-    }
-
-    pub fn _logical_tag_complete(
-        _f_rti: Arc<RwLock<RTIRemote>>,
-        fed_id: u16,
-        number_of_enclaves: i32,
-        start_time: Instant,
-        sent_start_time: Arc<(Mutex<bool>, Condvar)>,
-        completed: Tag,
-    ) {
-        // FIXME: Consolidate this message with NET to get NMR (Next Message Request).
-        // Careful with handling startup and shutdown.
-        {
-            let mut locked_rti = _f_rti.write().unwrap();
-            let idx: usize = fed_id.into();
-            let fed: &mut FederateInfo = &mut locked_rti.base_mut().scheduling_nodes_mut()[idx];
-            let enclave = fed.enclave_mut();
-            enclave.set_completed(completed);
-
-            println!(
-                "RTI received from federate/enclave {} the Logical Tag Complete (LTC) ({},{}).",
-                enclave.id(),
-                enclave.completed().time() - start_time,
-                enclave.completed().microstep()
-            );
-        }
-
-        // Check downstream enclaves to see whether they should now be granted a TAG.
-        let num_downstream;
-        {
-            let locked_rti = _f_rti.read().unwrap();
-            let idx: usize = fed_id.into();
-            let fed: &FederateInfo = &locked_rti.base().scheduling_nodes()[idx];
-            let e = fed.enclave();
-            num_downstream = e.num_downstream();
-        }
-        for i in 0..num_downstream {
-            let e_id;
-            {
-                let locked_rti = _f_rti.read().unwrap();
-                let idx: usize = fed_id.into();
-                let fed: &FederateInfo = &locked_rti.base().scheduling_nodes()[idx];
-                let downstreams = fed.enclave().downstream();
-                // FIXME: Replace "as u16" properly.
-                e_id = downstreams[i as usize] as u16;
-            }
-            // Notify downstream enclave if appropriate.
-            Self::notify_advance_grant_if_safe(
-                _f_rti.clone(),
-                e_id,
-                number_of_enclaves,
-                start_time,
-                sent_start_time.clone(),
-            );
-            let mut visited = vec![false as bool; number_of_enclaves as usize]; // Initializes to 0.
-                                                                                // Notify enclaves downstream of downstream if appropriate.
-            Self::notify_downstream_advance_grant_if_safe(
-                _f_rti.clone(),
-                e_id,
-                number_of_enclaves,
-                start_time,
-                &mut visited,
                 sent_start_time.clone(),
             );
         }
@@ -1644,51 +1388,6 @@ mod tests {
         let cloned_rti = Arc::clone(&arc_rti);
         let result = SchedulingNode::is_in_zero_delay_cycle(cloned_rti, 0);
         assert!(result == false);
-    }
-
-    #[test]
-    fn test_notify_tag_advance_grant_positive() {
-        let mut rti = initialize_rti();
-        let mut args: Vec<String> = Vec::new();
-        args.push(RUST_RTI_PROGRAM_PATH.to_string());
-        args.push(RUST_RTI_NUMBER_OF_FEDERATES_OPTION.to_string());
-        args.push(NUMBER_OF_FEDEATES.to_string());
-        let _ = process_args(&mut rti, &args);
-        initialize_federates(&mut rti);
-        let arc_rti = Arc::new(RwLock::new(rti));
-        let cloned_rti = Arc::clone(&arc_rti);
-        let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
-        let cloned_sent_start_time = Arc::clone(&sent_start_time);
-        SchedulingNode::notify_tag_advance_grant(
-            cloned_rti,
-            0,
-            Tag::new(0, 0),
-            0,
-            cloned_sent_start_time,
-        );
-    }
-
-    #[test]
-    fn test_notify_provisional_tag_advance_grant_positive() {
-        let mut rti = initialize_rti();
-        let mut args: Vec<String> = Vec::new();
-        args.push(RUST_RTI_PROGRAM_PATH.to_string());
-        args.push(RUST_RTI_NUMBER_OF_FEDERATES_OPTION.to_string());
-        args.push(NUMBER_OF_FEDEATES.to_string());
-        let _ = process_args(&mut rti, &args);
-        initialize_federates(&mut rti);
-        let arc_rti = Arc::new(RwLock::new(rti));
-        let cloned_rti = Arc::clone(&arc_rti);
-        let sent_start_time = Arc::new((Mutex::new(false), Condvar::new()));
-        let cloned_sent_start_time = Arc::clone(&sent_start_time);
-        SchedulingNode::notify_provisional_tag_advance_grant(
-            cloned_rti,
-            0,
-            NUMBER_OF_FEDEATES,
-            Tag::new(0, 0),
-            0,
-            cloned_sent_start_time,
-        );
     }
 
     #[test]

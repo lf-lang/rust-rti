@@ -1858,7 +1858,7 @@ impl Server {
 
     /**
      * Once the RTI has seen proposed tags from all connected federates,
-     * it will broadcast a MSG_TYPE_StopGranted carrying the _RTI.max_stop_tag.
+     * it will broadcast a MsgType::StopGranted carrying the _RTI.max_stop_tag.
      * This function also checks the most recently received NET from
      * each federate_info and resets that be no greater than the _RTI.max_stop_tag.
      *
@@ -1874,7 +1874,9 @@ impl Server {
             if _stop_granted._lf_rti_stop_granted_already_sent_to_federates() == true {
                 return;
             }
+            _stop_granted.set_lf_rti_stop_granted_already_sent_to_federates(true);
         }
+
         // Reply with a stop granted to all federates
         let mut outgoing_buffer = vec![0 as u8; MSG_TYPE_STOP_GRANTED_LENGTH];
         {
