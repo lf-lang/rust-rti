@@ -18,6 +18,8 @@ mod tag;
 mod trace;
 
 use std::error::Error;
+use std::env;
+use std::process;
 
 use crate::constants::*;
 use crate::federate_info::*;
@@ -289,6 +291,34 @@ pub fn start_rti_server(_f_rti: &mut RTIRemote) -> Result<Server, Box<dyn Error>
  */
 pub fn initialize_rti() -> RTIRemote {
     RTIRemote::new()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn run_rust_rti() {
+
+    let mut rti = initialize_rti();
+
+    let args: Vec<String> = env::args().collect();
+    // dbg!(args);
+
+    process_args(&mut rti, &args).unwrap_or_else(|err| {
+        println!("Problem parsing arguments: {err}");
+        process::exit(1);
+    });
+
+    println!(
+        "Starting RTI for {} federates in federation ID {}.",
+        rti.base().number_of_scheduling_nodes(),
+        rti.federation_id()
+    );
+    assert!(rti.base().number_of_scheduling_nodes() < u16::MAX.into());
+
+    initialize_federates(&mut rti);
+
+    let server = start_rti_server(&mut rti);
+    server
+        .expect("Failed to wait for federates")
+        .wait_for_federates(rti);
 }
 
 #[cfg(test)]

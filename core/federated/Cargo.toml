@@ -2,8 +2,13 @@
 name = "rti"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "rust_rti"
+crate-type = ["cdylib"]
 
 [dependencies]
 byteorder = "1"
@@ -11,3 +16,6 @@ priority-queue = "2.0.2"
 zerocopy = { version = "0.7.32", features = ["derive"] }
 socket-server-mocker = "0.0.4"
 rand = "0.8"
+
+[build-dependencies]
+cbindgen = "0.24"
